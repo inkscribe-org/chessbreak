@@ -7,6 +7,7 @@ import ChessBreak from "../util/chessbreak.ts";
 const chessBreak = new ChessBreak();
 
 if (chessBreak.isChessCom()) {
+  console.log("chess.com detected");
   chessBreak.start();
 }
 

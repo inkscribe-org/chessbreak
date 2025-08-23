@@ -1,22 +1,36 @@
-import crxLogo from "@/assets/crx.svg";
-import reactLogo from "@/assets/react.svg";
-import viteLogo from "@/assets/vite.svg";
-import HelloWorld from "@/components/HelloWorld";
 import "./App.css";
+import { useState, useEffect } from "react";
 
 export default function App() {
+  const [results, setResults] = useState({ win: 0, draw: 0, loss: 0 });
+
+  const updateResults = async () => {
+    const { sessionStats } = await chrome.storage.local.get("sessionStats");
+    setResults(sessionStats as { win: number; draw: number; loss: number });
+  };
+
+  chrome.storage.onChanged.addListener((changes, namespace) => {
+    if (namespace === "local" && changes.sessionStats) {
+      setResults(
+        changes.sessionStats.newValue as {
+          win: number;
+          draw: number;
+          loss: number;
+        }
+      );
+    }
+  });
+
+  useEffect(() => {
+    updateResults();
+  }, []);
+
   return (
     <div>
-      <a href="https://vite.dev" target="_blank" rel="noreferrer">
-        <img src={viteLogo} className="logo" alt="Vite logo" />
-      </a>
-      <a href="https://reactjs.org/" target="_blank" rel="noreferrer">
-        <img src={reactLogo} className="logo react" alt="React logo" />
-      </a>
-      <a href="https://crxjs.dev/vite-plugin" target="_blank" rel="noreferrer">
-        <img src={crxLogo} className="logo crx" alt="crx logo" />
-      </a>
-      <HelloWorld msg="Vite + React + CRXJS" />
+      <p>W/D/L</p>
+      <p>
+        {results.win}/{results.draw}/{results.loss}
+      </p>
     </div>
   );
 }
