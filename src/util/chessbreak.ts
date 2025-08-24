@@ -172,11 +172,15 @@ class ChessBreak {
     draw: number;
   }> => {
     let { sessionStats, chessBreakSessionStart } =
-      await chrome.storage.local.get("sessionStats");
+      await chrome.storage.local.get([
+        "sessionStats",
+        "chessBreakSessionStart",
+      ]);
     // TODO: modify session length with options page
-    const sessionLength = 5 * 60 * 1000;
+    console.log("chessBreakSessionStart", chessBreakSessionStart);
+    const sessionLength = 10 * 1000;
     if (
-      chessBreakSessionStart &&
+      chessBreakSessionStart === undefined ||
       Date.now() - chessBreakSessionStart > sessionLength
     ) {
       sessionStats = null;
@@ -184,7 +188,7 @@ class ChessBreak {
     if (!sessionStats) {
       sessionStats = { win: 0, loss: 0, draw: 0 };
       await chrome.storage.local.set({
-        sessionStats,
+        sessionStats: sessionStats,
         chessBreakSessionStart: Date.now(),
       });
     }
