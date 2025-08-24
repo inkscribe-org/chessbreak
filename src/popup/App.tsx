@@ -16,10 +16,15 @@ export default function App() {
           win: number;
           draw: number;
           loss: number;
-        }
+        },
       );
     }
   });
+
+  const clearStats = async () => {
+    await chrome.storage.local.clear();
+    window.close();
+  };
 
   useEffect(() => {
     updateResults();
@@ -77,6 +82,19 @@ export default function App() {
             {results.loss}
           </div>
           <div style={{ fontSize: "11px" }}>LOSS</div>
+        </div>
+      </div>
+      <div onClick={clearStats} style={{ cursor: "pointer" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: "12px",
+          }}
+        >
+          <h2 style={{ margin: 0, fontSize: "16px" }}>Clear Stats</h2>
+          <span style={{ fontSize: "12px", color: "#666" }}>Clears stats</span>
         </div>
       </div>
     </div>
