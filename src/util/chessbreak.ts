@@ -40,10 +40,9 @@ class ChessBreak {
   /**
    * Initialize player name element selectors
    */
-  private initPlayerNameElements = (): void => {
+  private initPlayerNameElements = (): { top: Element; bottom: Element } => {
     const [top, bottom] = document.querySelectorAll(".cc-user-block-component");
-    this.top = top;
-    this.bottom = bottom;
+    return { top, bottom };
   };
 
   /**
@@ -59,8 +58,8 @@ class ChessBreak {
   /**
    * Creates the mutation observer
    */
-  private setupObserver = () => {
-    this.observer = new MutationObserver((mutations) => {
+  private setupObserver = (): MutationObserver => {
+    return new MutationObserver((mutations) => {
       mutations.forEach((mutation) => {
         if (mutation.type === "childList") {
           mutation.addedNodes.forEach((node) => {
@@ -162,14 +161,47 @@ class ChessBreak {
     console.log("Game ended with result:", gameResult, reason);
   };
 
+  /**
+   * Initializes session stats from local storage
+   * If no session stats are found, creates a new session
+   * If the session is older than 5 minutes, creates a new session
+   */
+  private initSessionStats = async (): Promise<{
+    win: number;
+    loss: number;
+    draw: number;
+  }> => {
+    let { sessionStats, chessBreakSessionStart } =
+      await chrome.storage.local.get("sessionStats");
+    // TODO: modify session length with options page
+    const sessionLength = 5 * 60 * 1000;
+    if (
+      chessBreakSessionStart &&
+      Date.now() - chessBreakSessionStart > sessionLength
+    ) {
+      sessionStats = null;
+    }
+    if (!sessionStats) {
+      sessionStats = { win: 0, loss: 0, draw: 0 };
+      await chrome.storage.local.set({
+        sessionStats,
+        chessBreakSessionStart: Date.now(),
+      });
+    }
+    return sessionStats;
+  };
+
   /*
    * sets up observers for watching for game end and player name changes
    **/
-  start = () => {
+  start = async () => {
     console.log("Starting observers");
-    this.setupObserver();
+    this.observer = this.setupObserver();
     this.initObservers();
-    this.initPlayerNameElements();
+    const { top, bottom } = this.initPlayerNameElements();
+    this.top = top;
+    this.bottom = bottom;
+    this.results = await this.initSessionStats();
   };
 
   isChessCom = (): boolean => {
