@@ -1,4 +1,7 @@
-const MUTATION_CONFIG = {};
+const MUTATION_CONFIG = {
+  childList: true,
+  subtree: true,
+};
 
 /**
  * Main class for the chess break extension
@@ -30,18 +33,17 @@ class ChessBreak {
   /**
    * Sets up observers for watching for game end and player name changes
    */
-  private init = (): void => {
-    this.setupObserver();
+  private initObservers = (): void => {
+    this.observer?.observe(document.body, MUTATION_CONFIG);
+  };
+
+  /**
+   * Initialize player name element selectors
+   */
+  private initPlayerNameElements = (): void => {
     const [top, bottom] = document.querySelectorAll(".cc-user-block-component");
     this.top = top;
     this.bottom = bottom;
-
-    if (this.top) {
-      this.observer?.observe(this.top, MUTATION_CONFIG);
-    }
-    if (this.bottom) {
-      this.observer?.observe(this.bottom, MUTATION_CONFIG);
-    }
   };
 
   /**
@@ -55,7 +57,7 @@ class ChessBreak {
   };
 
   /**
-   * Sets up game end and playername observers
+   * Creates the mutation observer
    */
   private setupObserver = () => {
     this.observer = new MutationObserver((mutations) => {
@@ -166,14 +168,8 @@ class ChessBreak {
   start = () => {
     console.log("Starting observers");
     this.setupObserver();
-
-    if (this.observer) {
-      this.observer.observe(document.body, {
-        childList: true,
-        subtree: true,
-      });
-    }
-    this.init();
+    this.initObservers();
+    this.initPlayerNameElements();
   };
 
   isChessCom = (): boolean => {
