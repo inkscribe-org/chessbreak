@@ -143,7 +143,6 @@ class ChessBreak {
     timeout: number
   ): Promise<number> => {
     const now = Date.now();
-    console.log("Updating stats", now, timeout);
     await chrome.storage.local.set({
       currentTimeoutStart: now,
       currentTimeout: timeout,

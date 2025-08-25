@@ -19,42 +19,12 @@ export default function App() {
     }
   };
 
-  chrome.storage.onChanged.addListener((changes, namespace) => {
-    if (namespace !== "local") return;
-    if (changes.sessionStats) {
-      setResults(
-        changes.sessionStats.newValue as {
-          win: number;
-          draw: number;
-          loss: number;
-        }
-      );
-    }
-
-    if (changes.currentTimeoutStart && changes.currentTimeout) {
-      const timeoutStart =
-        changes.currentTimeoutStart?.newValue ||
-        changes.currentTimeoutStart?.oldValue;
-      const currentTimeout =
-        changes.currentTimeout?.newValue || changes.currentTimeout?.oldValue;
-
-      if (timeoutStart && currentTimeout) {
-        setTimeOut(currentTimeout);
-        const remainingTime = Math.max(
-          0,
-          currentTimeout - (Date.now() - timeoutStart)
-        );
-        setTimeLeft(remainingTime);
-      }
-    }
-  });
-
   // Countdown timer effect
   useEffect(() => {
     if (timeLeft <= 0 || timeOut === 0) return;
     const timer = setInterval(() => {
       setTimeLeft((prev) => {
-        if (prev <= 0) return 0;
+        if (prev <= 1000) return 0;
         return prev - 1000; // Decrease by 1 second (1000ms)
       });
     }, 1000);
@@ -69,6 +39,42 @@ export default function App() {
 
   useEffect(() => {
     updateResults();
+
+    const handleStorageChange = (changes: any, namespace: string) => {
+      if (namespace !== "local") return;
+      if (changes.sessionStats) {
+        setResults(
+          changes.sessionStats.newValue as {
+            win: number;
+            draw: number;
+            loss: number;
+          }
+        );
+      }
+
+      if (changes.currentTimeoutStart && changes.currentTimeout) {
+        const timeoutStart =
+          changes.currentTimeoutStart?.newValue ||
+          changes.currentTimeoutStart?.oldValue;
+        const currentTimeout =
+          changes.currentTimeout?.newValue || changes.currentTimeout?.oldValue;
+
+        if (timeoutStart && currentTimeout) {
+          setTimeOut(currentTimeout);
+          const remainingTime = Math.max(
+            0,
+            currentTimeout - (Date.now() - timeoutStart)
+          );
+          setTimeLeft(remainingTime);
+        }
+      }
+    };
+
+    chrome.storage.onChanged.addListener(handleStorageChange);
+
+    return () => {
+      chrome.storage.onChanged.removeListener(handleStorageChange);
+    };
   }, []);
 
   // Format time as MM:SS
@@ -150,17 +156,19 @@ export default function App() {
           <h2 style={{ margin: 0, fontSize: "16px" }}>Clear Stats</h2>
         </div>
       </button>
-      <div
-        style={{
-          fontSize: "14px",
-          color: "#dc2626",
-          fontWeight: "bold",
-          textAlign: "center",
-          marginTop: "8px",
-        }}
-      >
-        Time Remaining: {formatTime(timeLeft)}
-      </div>
+      {timeLeft > 0 && (
+        <div
+          style={{
+            fontSize: "14px",
+            color: "#dc2626",
+            fontWeight: "bold",
+            textAlign: "center",
+            marginTop: "8px",
+          }}
+        >
+          Time Remaining: {formatTime(timeLeft)}
+        </div>
+      )}
     </div>
   );
 }
