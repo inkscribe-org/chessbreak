@@ -13,6 +13,8 @@ interface SessionData {
   chessBreakSessionStart: number;
   chessBreakSessionLength: number;
   maxLosses: number;
+  currentTimeoutStart: number;
+  currentTimeout: number;
 }
 
 /**
@@ -36,17 +38,15 @@ class ChessBreak {
   sessionStart: number = 0;
   sessionLength: number = 0;
   maxLosses: number = 5;
+  currentTimeoutStart: number = 0;
+  currentTimeout: number = 10000;
 
   constructor() {
     this.currentUrl = window.location.href;
-    this.results = { win: 0, loss: 0, draw: 0 };
     this.username =
       document
         .querySelector("#notifications-request")
         ?.getAttribute("username") || null;
-    this.observer = null;
-    this.isPlaying = false;
-    this.streak = 0;
   }
 
   /**
@@ -135,18 +135,39 @@ class ChessBreak {
   };
 
   /**
-   * Blocks touch events on the play buttons, sets a timeer to resume play
+   * Sets the current timeout start in local storage
+   * @param timeout - The timeout in milliseconds
+   * @returns The current timeout start
    */
-  private stopTilt = () => {
+  private updateCurrentTimeoutStart = async (
+    timeout: number
+  ): Promise<number> => {
+    const now = Date.now();
+    console.log("Updating stats", now, timeout);
+    await chrome.storage.local.set({
+      currentTimeoutStart: now,
+      currentTimeout: timeout,
+    });
+    return now;
+  };
+
+  /**
+   * Removes visibility  on the play buttons, sets a timer to resume play
+   */
+  private stopTilt = async () => {
     this.playButtons.forEach((button) => {
-      button.setAttribute("style", "display: none;");
+      button.setAttribute("class", "cb-hidden");
     });
     console.log("Removing Tilt");
-    setTimeout(() => {
+    this.currentTimeoutStart = await this.updateCurrentTimeoutStart(
+      this.currentTimeout
+    );
+    setTimeout(async () => {
       this.playButtons.forEach((button) => {
         console.log(button);
+        button.classList.remove("cb-hidden");
       });
-    }, 5000); // TODO: make this configurable
+    }, this.currentTimeout);
   };
 
   private updateStats = async (
@@ -172,7 +193,7 @@ class ChessBreak {
   private handleGameLost = async () => {
     this.results.loss++;
     this.streak++;
-    if (this.streak > 3 || this.results.loss > this.maxLosses) {
+    if (this.streak > 1 || this.results.loss > this.maxLosses) {
       this.stopTilt();
       // await this.refreshStats();
     }
@@ -239,12 +260,16 @@ class ChessBreak {
       chessBreakStreak,
       chessBreakSessionLength,
       maxLosses,
+      currentTimeout,
+      currentTimeoutStart,
     } = await chrome.storage.local.get([
       "sessionStats",
       "chessBreakSessionStart",
       "chessBreakStreak",
       "chessBreakSessionLength",
       "maxLosses",
+      "currentTimeout",
+      "currentTimeoutStart",
     ]);
     // TODO: modify session length with options page
     const sessionLength = chessBreakSessionLength
@@ -257,8 +282,6 @@ class ChessBreak {
       console.log("Session expired, resetting session stats");
       chessBreakSessionStart = Date.now();
       chessBreakStreak = 0;
-    }
-    if (!sessionStats) {
       sessionStats = {
         win: 0,
         loss: 0,
@@ -269,6 +292,8 @@ class ChessBreak {
         chessBreakSessionStart,
         chessBreakStreak,
       });
+      currentTimeout = 10000;
+      currentTimeoutStart = 0;
     }
     return {
       sessionStats,
@@ -276,6 +301,8 @@ class ChessBreak {
       chessBreakStreak,
       chessBreakSessionLength,
       maxLosses,
+      currentTimeout,
+      currentTimeoutStart,
     };
   };
 
@@ -290,12 +317,14 @@ class ChessBreak {
       chessBreakStreak,
       chessBreakSessionStart,
       chessBreakSessionLength,
+      currentTimeout,
     } = await this.getLatestSessionData();
 
     this.results = sessionStats;
     this.streak = chessBreakStreak;
     this.sessionStart = chessBreakSessionStart;
     this.sessionLength = chessBreakSessionLength;
+    this.currentTimeout = currentTimeout != 0 ? currentTimeout : 10000;
   };
 
   /**
@@ -326,6 +355,12 @@ class ChessBreak {
     ] as HTMLElement[];
   };
 
+  private hidePlayButtons = () => {
+    const style = document.createElement("style");
+    style.textContent = ".cb-hidden { visibility: hidden !important; }";
+    document.body.appendChild(style);
+  };
+
   /*
    * Sets up observers for watching for game end and player name changes
    **/
@@ -335,6 +370,7 @@ class ChessBreak {
       // TODO: handle this error
       throw new Error("Username not found");
     }
+    this.hidePlayButtons();
     this.observer = this.setupObserver();
     this.initObservers();
     await this.initSessionStats();
