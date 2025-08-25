@@ -11,7 +11,7 @@ interface SessionData {
   sessionStats: { win: number; loss: number; draw: number };
   chessBreakStreak: number;
   chessBreakSessionStart: number;
-  chessBreaksessionLength: number;
+  chessBreakSessionLength: number;
   maxLosses: number;
 }
 
@@ -81,12 +81,15 @@ class ChessBreak {
     return new MutationObserver((mutations) => {
       mutations.forEach((mutation) => {
         if (mutation.type === "childList") {
+          // NOTE: init play buttons only if the page is loaded and the modal is detected
+          // putting this in the  init function means the selectors are null since the elements haven't loaded in yet
           mutation.addedNodes.forEach((node) => {
             if (node.nodeType === Node.ELEMENT_NODE) {
               const element = node as Element;
               if (
                 element.classList?.contains("board-modal-container-container")
               ) {
+                this.playButtons = this.initPlayButtonElements();
                 this.handleGameEnd(element);
               }
               const modal = element.querySelector?.(
@@ -136,14 +139,12 @@ class ChessBreak {
    */
   private stopTilt = () => {
     this.playButtons.forEach((button) => {
-      button.style.touchAction = "none";
-      button.style.pointerEvents = "none";
+      button.setAttribute("style", "display: none;");
     });
     console.log("Removing Tilt");
     setTimeout(() => {
       this.playButtons.forEach((button) => {
-        button.style.touchAction = "auto";
-        button.style.pointerEvents = "auto";
+        console.log(button);
       });
     }, 5000); // TODO: make this configurable
   };
@@ -154,8 +155,8 @@ class ChessBreak {
   ) => {
     await chrome.storage.local.set({
       sessionStats: results,
-      chessBreakstreak: streak,
-    });
+      chessBreakStreak: streak,
+    } as SessionData);
   };
 
   private handleGameWon = async () => {
@@ -164,6 +165,7 @@ class ChessBreak {
 
   private refreshStats = async () => {
     this.results = { win: 0, loss: 0, draw: 0 };
+    this.streak = 0;
     // TODO: update other session stats as well
   };
 
@@ -172,7 +174,7 @@ class ChessBreak {
     this.streak++;
     if (this.streak > 3 || this.results.loss > this.maxLosses) {
       this.stopTilt();
-      await this.refreshStats();
+      // await this.refreshStats();
     }
   };
 
@@ -235,7 +237,7 @@ class ChessBreak {
       sessionStats,
       chessBreakSessionStart,
       chessBreakStreak,
-      chessBreaksessionLength,
+      chessBreakSessionLength,
       maxLosses,
     } = await chrome.storage.local.get([
       "sessionStats",
@@ -245,28 +247,34 @@ class ChessBreak {
       "maxLosses",
     ]);
     // TODO: modify session length with options page
-    const sessionLength = chessBreaksessionLength
-      ? chessBreaksessionLength
+    const sessionLength = chessBreakSessionLength
+      ? chessBreakSessionLength
       : 5 * 60 * 1000;
     if (
       chessBreakSessionStart === undefined ||
-      Date.now() - chessBreakSessionStart < sessionLength
+      Date.now() - chessBreakSessionStart > sessionLength
     ) {
-      sessionStats = null;
+      console.log("Session expired, resetting session stats");
+      chessBreakSessionStart = Date.now();
+      chessBreakStreak = 0;
     }
     if (!sessionStats) {
-      sessionStats = { win: 0, loss: 0, draw: 0 };
+      sessionStats = {
+        win: 0,
+        loss: 0,
+        draw: 0,
+      } as SessionData["sessionStats"];
       await chrome.storage.local.set({
         sessionStats: sessionStats,
-        chessBreaksessionStart: Date.now(),
-        chessBreakStreak: 0,
+        chessBreakSessionStart,
+        chessBreakStreak,
       });
     }
     return {
       sessionStats,
       chessBreakSessionStart,
       chessBreakStreak,
-      chessBreaksessionLength,
+      chessBreakSessionLength,
       maxLosses,
     };
   };
@@ -281,13 +289,13 @@ class ChessBreak {
       sessionStats,
       chessBreakStreak,
       chessBreakSessionStart,
-      chessBreaksessionLength,
+      chessBreakSessionLength,
     } = await this.getLatestSessionData();
 
     this.results = sessionStats;
     this.streak = chessBreakStreak;
     this.sessionStart = chessBreakSessionStart;
-    this.sessionLength = chessBreaksessionLength;
+    this.sessionLength = chessBreakSessionLength;
   };
 
   /**
@@ -295,9 +303,27 @@ class ChessBreak {
    * @returns {HTMLElement[]} An array of HTML elements representing all ways to start a new game
    */
   private initPlayButtonElements = (): HTMLElement[] => {
-    const newGameDiv = document.querySelectorAll("new-game-buttons-buttons"); // restart div
-    const newGameComponent = document.querySelectorAll("new-game-component"); // play tab component
-    return [...newGameDiv, ...newGameComponent] as HTMLElement[];
+    if (this.playButtons.length > 0) {
+      return this.playButtons;
+    }
+    const newGameDiv = document.querySelectorAll(".new-game-buttons-buttons"); // restart div
+    const tabs = document.querySelectorAll(".tabs-tab");
+    let newGameTab = null;
+    // filter out all the tabs apart from tab with data-tab="newGame"
+    for (const tab of tabs) {
+      if (tab.getAttribute("data-tab") === "newGame") {
+        newGameTab = tab;
+        break;
+      }
+    }
+    const gameOver = document.querySelectorAll(".game-over-buttons-component"); // restart div
+    const newGameComponent = document.querySelectorAll(".new-game-component"); // play tab component
+    return [
+      ...newGameDiv,
+      ...newGameComponent,
+      ...gameOver,
+      ...[newGameTab],
+    ] as HTMLElement[];
   };
 
   /*
@@ -315,7 +341,6 @@ class ChessBreak {
     const { top, bottom } = this.initPlayerNameElements();
     this.top = top;
     this.bottom = bottom;
-    this.playButtons = this.initPlayButtonElements();
   };
 
   isChessCom = (): boolean => {
