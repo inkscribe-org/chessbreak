@@ -1,3 +1,7 @@
+// TODO: test absolute w/l breakmode
+// TODO: change maxlosses with options page
+// TODO: test rating change
+
 const MUTATION_CONFIG = {
   childList: true,
   subtree: true,
@@ -5,9 +9,10 @@ const MUTATION_CONFIG = {
 
 interface SessionData {
   sessionStats: { win: number; loss: number; draw: number };
-  chessBreakstreak: number;
+  chessBreakStreak: number;
   chessBreakSessionStart: number;
   chessBreaksessionLength: number;
+  maxLosses: number;
 }
 
 /**
@@ -18,7 +23,7 @@ class ChessBreak {
   bottom: Element | null = null;
   username: string | null = null;
   observer: MutationObserver | null = null;
-  isPlaying: boolean = false;
+  isPlaying: boolean = false; // TODO: make this false even if it is the user's game but not the current game
   currentUrl: string | null = null;
   prevUrl: string | null = null;
   results: { win: number; loss: number; draw: number } = {
@@ -30,6 +35,7 @@ class ChessBreak {
   streak: number = 0;
   sessionStart: number = 0;
   sessionLength: number = 0;
+  maxLosses: number = 5;
 
   constructor() {
     this.currentUrl = window.location.href;
@@ -81,11 +87,10 @@ class ChessBreak {
               if (
                 element.classList?.contains("board-modal-container-container")
               ) {
-                console.log("Game result modal appeared!");
                 this.handleGameEnd(element);
               }
               const modal = element.querySelector?.(
-                ".board-modal-container-container",
+                ".board-modal-container-container"
               );
               if (modal) {
                 console.log("Game result modal appeared in container!", modal);
@@ -130,7 +135,6 @@ class ChessBreak {
    * Blocks touch events on the play buttons, sets a timeer to resume play
    */
   private stopTilt = () => {
-    console.log("Stopping tilt");
     this.playButtons.forEach((button) => {
       button.style.touchAction = "none";
       button.style.pointerEvents = "none";
@@ -144,33 +148,49 @@ class ChessBreak {
     }, 5000); // TODO: make this configurable
   };
 
-  private writeStreak = async (streak: number) => {
-    await chrome.storage.local.set({ chessBreakstreak: streak });
+  private updateStats = async (
+    results: { win: number; loss: number; draw: number },
+    streak: number
+  ) => {
+    await chrome.storage.local.set({
+      sessionStats: results,
+      chessBreakstreak: streak,
+    });
   };
 
   private handleGameWon = async () => {
     this.results.win++;
-    await this.writeStreak(0);
+  };
+
+  private refreshStats = async () => {
+    this.results = { win: 0, loss: 0, draw: 0 };
+    // TODO: update other session stats as well
   };
 
   private handleGameLost = async () => {
     this.results.loss++;
     this.streak++;
-    await this.writeStreak(this.streak);
-    if (this.streak > 3) {
+    if (this.streak > 3 || this.results.loss > this.maxLosses) {
       this.stopTilt();
+      await this.refreshStats();
     }
   };
 
   private handleGameDraw = () => {
     this.results.draw++;
-    this.writeStreak(0);
   };
 
-  private getGameResultText = (modal: Element) => {
+  /**
+   * Gets the game result text and reason from the modal
+   * @param modal - The modal element
+   * @returns The game result text
+   */
+  private getGameResultText = (
+    modal: Element
+  ): { result: string; reason: string } => {
     const result = modal.querySelector(".header-title-component")?.textContent;
     const reason = modal.querySelector(
-      ".header-subtitle-component",
+      ".header-subtitle-component"
     )?.textContent;
     return { result: result || "", reason: reason || "" };
   };
@@ -178,7 +198,7 @@ class ChessBreak {
   /*
    * Handles game end detection from MutationObserver, gets game result
    */
-  private handleGameEnd = (modalElement: Element) => {
+  private handleGameEnd = async (modalElement: Element) => {
     if (!this.username) {
       throw new Error("Username not found");
     }
@@ -200,26 +220,29 @@ class ChessBreak {
       this.handleGameDraw();
     }
 
-    chrome.storage.local.set({
-      sessionStats: this.results,
-      chessBreakstreak: this.streak,
-    });
+    await this.updateStats(this.results, this.streak);
 
-    console.log("Results:", this.results);
+    console.log("Results:", this.results, this.streak);
     console.log("Game ended with result:", gameResult, reason);
   };
 
+  /**
+   * Gets the latest session data from local storage
+   * @returns The latest session data
+   */
   private getLatestSessionData = async (): Promise<SessionData> => {
     let {
       sessionStats,
       chessBreakSessionStart,
-      chessBreakstreak,
+      chessBreakStreak,
       chessBreaksessionLength,
+      maxLosses,
     } = await chrome.storage.local.get([
       "sessionStats",
       "chessBreakSessionStart",
-      "chessBreakstreak",
+      "chessBreakStreak",
       "chessBreakSessionLength",
+      "maxLosses",
     ]);
     // TODO: modify session length with options page
     const sessionLength = chessBreaksessionLength
@@ -227,7 +250,7 @@ class ChessBreak {
       : 5 * 60 * 1000;
     if (
       chessBreakSessionStart === undefined ||
-      Date.now() - chessBreakSessionStart > sessionLength
+      Date.now() - chessBreakSessionStart < sessionLength
     ) {
       sessionStats = null;
     }
@@ -236,14 +259,15 @@ class ChessBreak {
       await chrome.storage.local.set({
         sessionStats: sessionStats,
         chessBreaksessionStart: Date.now(),
-        chessBreakstreak: 0,
+        chessBreakStreak: 0,
       });
     }
     return {
       sessionStats,
       chessBreakSessionStart,
-      chessBreakstreak,
+      chessBreakStreak,
       chessBreaksessionLength,
+      maxLosses,
     };
   };
 
@@ -255,13 +279,13 @@ class ChessBreak {
   private initSessionStats = async (): Promise<void> => {
     const {
       sessionStats,
-      chessBreakstreak,
+      chessBreakStreak,
       chessBreakSessionStart,
       chessBreaksessionLength,
     } = await this.getLatestSessionData();
 
     this.results = sessionStats;
-    this.streak = chessBreakstreak;
+    this.streak = chessBreakStreak;
     this.sessionStart = chessBreakSessionStart;
     this.sessionLength = chessBreaksessionLength;
   };
@@ -287,11 +311,11 @@ class ChessBreak {
     }
     this.observer = this.setupObserver();
     this.initObservers();
+    await this.initSessionStats();
     const { top, bottom } = this.initPlayerNameElements();
     this.top = top;
     this.bottom = bottom;
     this.playButtons = this.initPlayButtonElements();
-    await this.initSessionStats();
   };
 
   isChessCom = (): boolean => {
