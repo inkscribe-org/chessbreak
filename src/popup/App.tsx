@@ -1,10 +1,25 @@
 import "./App.css";
 import { useState, useEffect } from "react";
 
+interface GameInfo {
+  result: "win" | "loss" | "draw";
+  reason: string;
+  timestamp: number;
+  players: {
+    top: string;
+    bottom: string;
+    username: string;
+  };
+  url: string;
+}
+
 export default function App() {
   const [results, setResults] = useState({ win: 0, draw: 0, loss: 0 });
   const [timeOut, setTimeOut] = useState(0);
   const [timeLeft, setTimeLeft] = useState(0);
+  const [gameHistory, setGameHistory] = useState<Map<string, GameInfo>>(
+    new Map()
+  );
 
   const updateResults = async () => {
     const { sessionStats } = await chrome.storage.local.get("sessionStats");
@@ -19,27 +34,19 @@ export default function App() {
     }
   };
 
-  // Countdown timer effect
-  useEffect(() => {
-    if (timeLeft <= 0 || timeOut === 0) return;
-    const timer = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1000) return 0;
-        return prev - 1000; // Decrease by 1 second (1000ms)
-      });
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [timeLeft, timeOut]);
-
-  const clearStats = async () => {
-    await chrome.storage.local.clear();
-    window.close();
+  const loadGameHistory = async () => {
+    try {
+      const { gameHistory } = await chrome.storage.local.get("gameHistory");
+      if (gameHistory) {
+        setGameHistory(new Map(Object.entries(gameHistory)));
+      }
+    } catch (error) {
+      console.error("Error loading game history:", error);
+    }
   };
 
+  // Move the listener setup to useEffect to ensure it only runs once
   useEffect(() => {
-    updateResults();
-
     const handleStorageChange = (changes: any, namespace: string) => {
       if (namespace !== "local") return;
       if (changes.sessionStats) {
@@ -68,6 +75,10 @@ export default function App() {
           setTimeLeft(remainingTime);
         }
       }
+
+      if (changes.gameHistory) {
+        loadGameHistory();
+      }
     };
 
     chrome.storage.onChanged.addListener(handleStorageChange);
@@ -75,6 +86,34 @@ export default function App() {
     return () => {
       chrome.storage.onChanged.removeListener(handleStorageChange);
     };
+  }, []);
+
+  // Countdown timer effect
+  useEffect(() => {
+    if (timeLeft <= 0 || timeOut === 0) return;
+    const timer = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1000) return 0;
+        return prev - 1000; // Decrease by 1 second (1000ms)
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [timeLeft, timeOut]);
+
+  const clearStats = async () => {
+    await chrome.storage.local.clear();
+    setGameHistory(new Map());
+    window.close();
+  };
+
+  const openGame = (url: string) => {
+    chrome.tabs.create({ url });
+  };
+
+  useEffect(() => {
+    updateResults();
+    loadGameHistory();
   }, []);
 
   // Format time as MM:SS
@@ -87,11 +126,43 @@ export default function App() {
       .padStart(2, "0")}`;
   };
 
+  // Format timestamp as readable date
+  const formatDate = (timestamp: number) => {
+    return (
+      new Date(timestamp).toLocaleDateString() +
+      " " +
+      new Date(timestamp).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    );
+  };
+
+  // Get result color
+  const getResultColor = (result: string) => {
+    switch (result) {
+      case "win":
+        return "#22c55e";
+      case "loss":
+        return "#ef4444";
+      case "draw":
+        return "#64748b";
+      default:
+        return "#666";
+    }
+  };
+
+  // Convert Map to sorted array for display
+  const sortedGames = Array.from(gameHistory.entries()).sort(
+    ([, a], [, b]) => b.timestamp - a.timestamp
+  );
+
   return (
     <div
       style={{
         padding: "16px",
-        minWidth: "200px",
+        minWidth: "300px",
+        maxWidth: "400px",
         fontFamily: "system-ui, sans-serif",
       }}
     >
@@ -114,6 +185,7 @@ export default function App() {
           padding: "12px",
           borderRadius: "8px",
           marginBottom: "12px",
+          backgroundColor: "#f8f9fa",
         }}
       >
         <div style={{ textAlign: "center" }}>
@@ -141,21 +213,7 @@ export default function App() {
           <div style={{ fontSize: "11px" }}>LOSS</div>
         </div>
       </div>
-      <button
-        onClick={clearStats}
-        style={{ cursor: "pointer", border: "none", background: "none" }}
-      >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: "12px",
-          }}
-        >
-          <h2 style={{ margin: 0, fontSize: "16px" }}>Clear Stats</h2>
-        </div>
-      </button>
+
       {timeLeft > 0 && (
         <div
           style={{
@@ -163,12 +221,123 @@ export default function App() {
             color: "#dc2626",
             fontWeight: "bold",
             textAlign: "center",
-            marginTop: "8px",
+            marginBottom: "12px",
+            padding: "8px",
+            backgroundColor: "#fef2f2",
+            borderRadius: "6px",
           }}
         >
           Time Remaining: {formatTime(timeLeft)}
         </div>
       )}
+
+      {/* Game History Section */}
+      {sortedGames.length > 0 && (
+        <div style={{ marginBottom: "12px" }}>
+          <h3
+            style={{ margin: "0 0 8px 0", fontSize: "14px", color: "#374151" }}
+          >
+            Recent Games ({sortedGames.length})
+          </h3>
+          <div style={{ maxHeight: "200px", overflowY: "auto" }}>
+            {sortedGames.map(([url, game], index) => (
+              <div
+                key={index}
+                style={{
+                  padding: "8px",
+                  marginBottom: "6px",
+                  border: "1px solid #e5e7eb",
+                  borderRadius: "6px",
+                  backgroundColor: "#ffffff",
+                  cursor: "pointer",
+                }}
+                onClick={() => openGame(url)}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = "#f3f4f6";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = "#ffffff";
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: "4px",
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: "12px",
+                      fontWeight: "bold",
+                      color: getResultColor(game.result),
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    {game.result}
+                  </span>
+                  <span style={{ fontSize: "10px", color: "#6b7280" }}>
+                    {formatDate(game.timestamp)}
+                  </span>
+                </div>
+                <div
+                  style={{
+                    fontSize: "11px",
+                    color: "#374151",
+                    marginBottom: "2px",
+                  }}
+                >
+                  {game.players.top} vs {game.players.bottom}
+                </div>
+                {game.reason && (
+                  <div
+                    style={{
+                      fontSize: "10px",
+                      color: "#6b7280",
+                      fontStyle: "italic",
+                    }}
+                  >
+                    {game.reason}
+                  </div>
+                )}
+                <div
+                  style={{
+                    fontSize: "10px",
+                    color: "#3b82f6",
+                    marginTop: "4px",
+                  }}
+                >
+                  Click to open game →
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <button
+        onClick={clearStats}
+        style={{
+          cursor: "pointer",
+          border: "none",
+          background: "none",
+          width: "100%",
+          padding: "8px",
+          borderRadius: "6px",
+          backgroundColor: "#f3f4f6",
+          color: "#374151",
+          fontSize: "12px",
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.backgroundColor = "#e5e7eb";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.backgroundColor = "#f3f4f6";
+        }}
+      >
+        Clear Stats
+      </button>
     </div>
   );
 }

@@ -40,6 +40,7 @@ class ChessBreak {
   maxLosses: number = 5;
   currentTimeoutStart: number = 0;
   currentTimeout: number = 10000;
+  gameUrls: Map<string, object> = new Map(); // url -> {top: string, bottom: string}
 
   constructor() {
     this.currentUrl = window.location.href;
@@ -47,6 +48,7 @@ class ChessBreak {
       document
         .querySelector("#notifications-request")
         ?.getAttribute("username") || null;
+    this.gameUrls.set(this.currentUrl, { win: 0, loss: 0, draw: 0 });
   }
 
   /**
@@ -234,6 +236,30 @@ class ChessBreak {
     }
     const { result, reason } = this.getGameResultText(modalElement);
     const gameResult = this.parseGameResult(result);
+
+    const gameInfo = {
+      result: gameResult,
+      reason: reason,
+      timestamp: Date.now(),
+      players: {
+        top: this.top?.textContent || "",
+        bottom: this.bottom?.textContent || "",
+        username: this.username,
+      },
+      url: this.currentUrl,
+    };
+
+    if (this.currentUrl) {
+      this.gameUrls.set(this.currentUrl, gameInfo);
+      console.log("Stored game info for URL:", this.currentUrl, gameInfo);
+    }
+
+    try {
+      await chrome.storage.local.set(this.gameUrls);
+    } catch (error) {
+      console.error("Error storing game info:", error);
+    }
+
     if (gameResult === "win") {
       this.handleGameWon();
     } else if (gameResult === "loss") {
@@ -291,7 +317,7 @@ class ChessBreak {
         chessBreakSessionStart,
         chessBreakStreak,
       });
-      currentTimeout = 10000;
+      currentTimeout = 60000;
       currentTimeoutStart = 0;
     }
     return {
@@ -360,6 +386,24 @@ class ChessBreak {
     document.body.appendChild(style);
   };
 
+  /**
+   * Loads game history from local storage
+   * @returns The game history as a Map of url -> {result: string, reason: string, timestamp: number, players: {top: string, bottom: string, username: string}, url: string}
+   * or null if the game history is not found
+   */
+  private loadGameHistory = async (): Promise<Map<string, object> | null> => {
+    try {
+      const { gameHistory } = await chrome.storage.local.get("gameHistory");
+      if (gameHistory) {
+        console.log("Loaded game history:", this.gameUrls.size, "games");
+        return new Map(Object.entries(gameHistory));
+      }
+    } catch (error) {
+      console.error("Error loading game history:", error);
+    }
+    return null;
+  };
+
   /*
    * Sets up observers for watching for game end and player name changes
    **/
@@ -376,6 +420,12 @@ class ChessBreak {
     const { top, bottom } = this.initPlayerNameElements();
     this.top = top;
     this.bottom = bottom;
+    let urls = await this.loadGameHistory();
+    while (urls === null) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      urls = await this.loadGameHistory();
+    }
+    this.gameUrls = urls;
   };
 
   isChessCom = (): boolean => {
