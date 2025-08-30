@@ -17,9 +17,7 @@ export default function App() {
   const [results, setResults] = useState({ win: 0, draw: 0, loss: 0 });
   const [timeOut, setTimeOut] = useState(0);
   const [timeLeft, setTimeLeft] = useState(0);
-  const [gameHistory, setGameHistory] = useState<Map<string, GameInfo>>(
-    new Map()
-  );
+  const [gameHistory, setGameHistory] = useState<Array<GameInfo>>([]);
 
   const updateResults = async () => {
     const { sessionStats } = await chrome.storage.local.get("sessionStats");
@@ -37,9 +35,10 @@ export default function App() {
   const loadGameHistory = async () => {
     try {
       const { gameHistory } = await chrome.storage.local.get("gameHistory");
-      if (gameHistory) {
-        setGameHistory(new Map(Object.entries(gameHistory)));
+      if (!gameHistory) {
+        throw new Error("Game history not found");
       }
+      setGameHistory(gameHistory as Array<GameInfo>);
     } catch (error) {
       console.error("Error loading game history:", error);
     }
@@ -102,8 +101,16 @@ export default function App() {
   }, [timeLeft, timeOut]);
 
   const clearStats = async () => {
-    await chrome.storage.local.clear();
-    setGameHistory(new Map());
+    await chrome.storage.local.set({
+      sessionStats: { win: 0, draw: 0, loss: 0 },
+      chessBreakStreak: 0,
+      chessBreakSessionStart: 0,
+      chessBreakSessionLength: 0,
+      currentTimeout: 0,
+      currentTimeoutStart: 0,
+      gameHistory: [],
+    });
+    setGameHistory([]);
     window.close();
   };
 
@@ -153,9 +160,7 @@ export default function App() {
   };
 
   // Convert Map to sorted array for display
-  const sortedGames = Array.from(gameHistory.entries()).sort(
-    ([, a], [, b]) => b.timestamp - a.timestamp
-  );
+  const sortedGames = gameHistory.sort((a, b) => b.timestamp - a.timestamp);
 
   return (
     <div
@@ -185,7 +190,6 @@ export default function App() {
           padding: "12px",
           borderRadius: "8px",
           marginBottom: "12px",
-          backgroundColor: "#f8f9fa",
         }}
       >
         <div style={{ textAlign: "center" }}>
@@ -223,7 +227,6 @@ export default function App() {
             textAlign: "center",
             marginBottom: "12px",
             padding: "8px",
-            backgroundColor: "#fef2f2",
             borderRadius: "6px",
           }}
         >
@@ -240,7 +243,7 @@ export default function App() {
             Recent Games ({sortedGames.length})
           </h3>
           <div style={{ maxHeight: "200px", overflowY: "auto" }}>
-            {sortedGames.map(([url, game], index) => (
+            {sortedGames.map((game, index) => (
               <div
                 key={index}
                 style={{
@@ -248,10 +251,9 @@ export default function App() {
                   marginBottom: "6px",
                   border: "1px solid #e5e7eb",
                   borderRadius: "6px",
-                  backgroundColor: "#ffffff",
                   cursor: "pointer",
                 }}
-                onClick={() => openGame(url)}
+                onClick={() => openGame(game.url)}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.backgroundColor = "#f3f4f6";
                 }}

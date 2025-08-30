@@ -1,11 +1,15 @@
-// TODO: test absolute w/l breakmode
-// TODO: change maxlosses with options page
 // TODO: test rating change
 
 const MUTATION_CONFIG = {
   childList: true,
   subtree: true,
 };
+
+enum GameState {
+  NOT_STARTED,
+  IN_PROGRESS,
+  ENDED,
+}
 
 interface SessionData {
   sessionStats: { win: number; loss: number; draw: number };
@@ -15,7 +19,157 @@ interface SessionData {
   maxLosses: number;
   currentTimeoutStart: number;
   currentTimeout: number;
+  gameHistory: Array<{
+    url: string | null;
+    result: string;
+    reason: string;
+    timestamp: number;
+    players: { top: string; bottom: string; username: string };
+  }>;
+  gameState: GameState;
 }
+
+/**
+ * Loads game history from local storage
+ * @returns The game history as a Map of url -> {result: string, reason: string, timestamp: number, players: {top: string, bottom: string, username: string}, url: string}
+ * or null if the game history is not found
+ */
+const loadGameHistory = async (): Promise<Array<{
+  url: string;
+  result: string;
+  reason: string;
+  timestamp: number;
+  players: { top: string; bottom: string; username: string };
+}> | null> => {
+  try {
+    const { gameHistory } = await chrome.storage.local.get("gameHistory");
+    if (gameHistory) {
+      console.log("Loaded game history:", gameHistory, "games");
+      return gameHistory;
+    }
+  } catch (error) {
+    console.error("Error loading game history:", error);
+  }
+  return null;
+};
+
+/**
+ * Saves game history to local storage
+ * @param gameHistory - The game history to save
+ */
+const saveGameHistory = async (
+  gameHistory: Array<{
+    url: string;
+    result: string;
+    reason: string;
+    timestamp: number;
+    players: { top: string; bottom: string; username: string };
+  }>
+) => {
+  await chrome.storage.local.set({
+    gameHistory: gameHistory,
+  });
+};
+
+/**
+ * Gets the latest session data from local storage
+ * @returns The latest session data
+ */
+const getLatestSessionData = async (): Promise<SessionData> => {
+  let {
+    sessionStats,
+    chessBreakSessionStart,
+    chessBreakStreak,
+    chessBreakSessionLength,
+    maxLosses,
+    currentTimeout,
+    currentTimeoutStart,
+    gameHistory,
+  } = await chrome.storage.local.get([
+    "sessionStats",
+    "chessBreakSessionStart",
+    "chessBreakStreak",
+    "chessBreakSessionLength",
+    "maxLosses",
+    "currentTimeout",
+    "currentTimeoutStart",
+    "gameHistory",
+  ]);
+  // TODO: modify session length with options page
+  const sessionLength = chessBreakSessionLength
+    ? chessBreakSessionLength
+    : 5 * 60 * 1000;
+  if (
+    chessBreakSessionStart === undefined ||
+    Date.now() - chessBreakSessionStart > sessionLength
+  ) {
+    console.log("Session expired, resetting session stats");
+    chessBreakSessionStart = Date.now();
+    chessBreakStreak = 0;
+    sessionStats = {
+      win: 0,
+      loss: 0,
+      draw: 0,
+    } as SessionData["sessionStats"];
+    await chrome.storage.local.set({
+      sessionStats: sessionStats,
+      chessBreakSessionStart,
+      chessBreakStreak,
+      gameHistory: [], // overwrite game history because the session is over
+    });
+    currentTimeout = 60000;
+    currentTimeoutStart = 0;
+  }
+  return {
+    sessionStats,
+    chessBreakSessionStart,
+    chessBreakStreak,
+    chessBreakSessionLength,
+    maxLosses,
+    currentTimeout,
+    currentTimeoutStart,
+    gameHistory,
+  };
+};
+
+const updateStats = async (
+  results: { win: number; loss: number; draw: number },
+  streak: number
+) => {
+  await chrome.storage.local.set({
+    sessionStats: results,
+    chessBreakStreak: streak,
+  });
+};
+
+/**
+ * Parses the game result from the modal.
+ * @param result - The result of the game result text may either be "You won!, draw or white/black won"
+ * @returns The result of the game, "win", "loss" or "draw"
+ */
+const parseGameResult = (result: string): "win" | "loss" | "draw" => {
+  const resultText = result.trim().toLowerCase();
+  if (resultText.includes("draw")) {
+    return "draw";
+  }
+  if (resultText.includes("white") || resultText.includes("black")) {
+    return "loss";
+  }
+  return "win";
+};
+
+/**
+ * Gets the game result text and reason from the modal
+ * @param modal - The modal element
+ * @returns The game result text
+ */
+const getGameResultText = (
+  modal: Element
+): { result: string; reason: string } => {
+  const result = modal.querySelector(".header-title-component")?.textContent;
+  const reason = modal.querySelector(".header-subtitle-component")?.textContent;
+  return { result: result || "", reason: reason || "" };
+};
 
 /**
  * Main class for the chess break extension
@@ -40,7 +194,14 @@ class ChessBreak {
   maxLosses: number = 5;
   currentTimeoutStart: number = 0;
   currentTimeout: number = 10000;
-  gameUrls: Map<string, object> = new Map(); // url -> {top: string, bottom: string}
+  gameHistory: Array<{
+    url: string;
+    result: string;
+    reason: string;
+    timestamp: number;
+    players: { top: string; bottom: string; username: string };
+  }> = [];
+  gameState: GameState = GameState.NOT_STARTED;
 
   constructor() {
     this.currentUrl = window.location.href;
@@ -48,7 +209,13 @@ class ChessBreak {
       document
         .querySelector("#notifications-request")
         ?.getAttribute("username") || null;
-    this.gameUrls.set(this.currentUrl, { win: 0, loss: 0, draw: 0 });
+    this.gameHistory.push({
+      url: this.currentUrl,
+      result: "win",
+      reason: "test",
+      timestamp: Date.now(),
+      players: { top: "", bottom: "", username: "" },
+    });
   }
 
   /**
@@ -58,6 +225,7 @@ class ChessBreak {
     this.observer?.observe(document.body, MUTATION_CONFIG);
   };
 
+  // TODO: check for game result span to see if game is ended.
   /**
    * Initialize player name element selectors
    */
@@ -81,6 +249,8 @@ class ChessBreak {
    */
   private setupObserver = (): MutationObserver => {
     return new MutationObserver((mutations) => {
+      // check game state
+      this.isGameStarted(); // TODO: move this so it is called less times
       mutations.forEach((mutation) => {
         if (mutation.type === "childList") {
           // NOTE: init play buttons only if the page is loaded and the modal is detected
@@ -119,24 +289,6 @@ class ChessBreak {
   };
 
   /**
-   * Parses the game result from the modal.
-   * @param result - The result of the game result text may either be "You won!, draw or white/black won"
-   * @returns The result of the game, "win", "loss" or "draw"
-   */
-  private parseGameResult = (result: string): "win" | "loss" | "draw" => {
-    const resultText = result.trim().toLowerCase();
-    if (resultText.includes("draw")) {
-      return "draw";
-    }
-
-    if (resultText.includes("white") || resultText.includes("black")) {
-      return "loss";
-    }
-
-    return "win";
-  };
-
-  /**
    * Sets the current timeout start in local storage
    * @param timeout - The timeout in milliseconds
    * @returns The current timeout start
@@ -171,24 +323,9 @@ class ChessBreak {
     }, this.currentTimeout);
   };
 
-  private updateStats = async (
-    results: { win: number; loss: number; draw: number },
-    streak: number
-  ) => {
-    await chrome.storage.local.set({
-      sessionStats: results,
-      chessBreakStreak: streak,
-    } as SessionData);
-  };
-
   private handleGameWon = async () => {
     this.results.win++;
-  };
-
-  private refreshStats = async () => {
-    this.results = { win: 0, loss: 0, draw: 0 };
-    this.streak = 0;
-    // TODO: update other session stats as well
+    this.streak++;
   };
 
   private handleGameLost = async () => {
@@ -196,27 +333,11 @@ class ChessBreak {
     this.streak++;
     if (this.streak > 1 || this.results.loss > this.maxLosses) {
       this.stopTilt();
-      // await this.refreshStats();
     }
   };
 
   private handleGameDraw = () => {
     this.results.draw++;
-  };
-
-  /**
-   * Gets the game result text and reason from the modal
-   * @param modal - The modal element
-   * @returns The game result text
-   */
-  private getGameResultText = (
-    modal: Element
-  ): { result: string; reason: string } => {
-    const result = modal.querySelector(".header-title-component")?.textContent;
-    const reason = modal.querySelector(
-      ".header-subtitle-component"
-    )?.textContent;
-    return { result: result || "", reason: reason || "" };
   };
 
   /*
@@ -234,28 +355,11 @@ class ChessBreak {
       console.log("User not playing, ignoring game end");
       return;
     }
-    const { result, reason } = this.getGameResultText(modalElement);
-    const gameResult = this.parseGameResult(result);
-
-    const gameInfo = {
-      result: gameResult,
-      reason: reason,
-      timestamp: Date.now(),
-      players: {
-        top: this.top?.textContent || "",
-        bottom: this.bottom?.textContent || "",
-        username: this.username,
-      },
-      url: this.currentUrl,
-    };
-
-    if (this.currentUrl) {
-      this.gameUrls.set(this.currentUrl, gameInfo);
-      console.log("Stored game info for URL:", this.currentUrl, gameInfo);
-    }
+    const { result, reason } = getGameResultText(modalElement);
+    const gameResult = parseGameResult(result);
 
     try {
-      await chrome.storage.local.set(this.gameUrls);
+      await chrome.storage.local.set({ gameHistory: this.gameHistory });
     } catch (error) {
       console.error("Error storing game info:", error);
     }
@@ -268,67 +372,47 @@ class ChessBreak {
       this.handleGameDraw();
     }
 
-    await this.updateStats(this.results, this.streak);
+    await saveGameHistory(this.gameHistory);
+    await updateStats(this.results, this.streak);
 
     console.log("Results:", this.results, this.streak);
-    console.log("Game ended with result:", gameResult, reason);
+    await this.updateSessionStart();
+  };
+
+  private checkGameStarted = () => {
+    const gameStarted = document.querySelector(".draw-button-label");
+    return gameStarted !== null;
   };
 
   /**
-   * Gets the latest session data from local storage
-   * @returns The latest session data
+   * Checks if game has started, updates gameState and sessionStart if it has
    */
-  private getLatestSessionData = async (): Promise<SessionData> => {
-    let {
-      sessionStats,
-      chessBreakSessionStart,
-      chessBreakStreak,
-      chessBreakSessionLength,
-      maxLosses,
-      currentTimeout,
-      currentTimeoutStart,
-    } = await chrome.storage.local.get([
-      "sessionStats",
-      "chessBreakSessionStart",
-      "chessBreakStreak",
-      "chessBreakSessionLength",
-      "maxLosses",
-      "currentTimeout",
-      "currentTimeoutStart",
-    ]);
-    // TODO: modify session length with options page
-    const sessionLength = chessBreakSessionLength
-      ? chessBreakSessionLength
-      : 5 * 60 * 1000;
+  private isGameStarted = () => {
+    console.log("Checking game state", this.gameState);
+    const gameStarted = this.checkGameStarted();
     if (
-      chessBreakSessionStart === undefined ||
-      Date.now() - chessBreakSessionStart > sessionLength
+      gameStarted &&
+      (this.gameState === GameState.NOT_STARTED ||
+        this.gameState === GameState.ENDED)
     ) {
-      console.log("Session expired, resetting session stats");
-      chessBreakSessionStart = Date.now();
-      chessBreakStreak = 0;
-      sessionStats = {
-        win: 0,
-        loss: 0,
-        draw: 0,
-      } as SessionData["sessionStats"];
-      await chrome.storage.local.set({
-        sessionStats: sessionStats,
-        chessBreakSessionStart,
-        chessBreakStreak,
-      });
-      currentTimeout = 60000;
-      currentTimeoutStart = 0;
+      this.gameState = GameState.IN_PROGRESS;
+      this.sessionStart = Date.now();
     }
-    return {
-      sessionStats,
-      chessBreakSessionStart,
-      chessBreakStreak,
-      chessBreakSessionLength,
-      maxLosses,
-      currentTimeout,
-      currentTimeoutStart,
-    };
+  };
+
+  /**
+   * Update the session start time to the latest gane end so timeouts only be counted from the start of the session
+   */
+  private updateSessionStart = async () => {
+    const sessionLength = this.sessionLength || 5 * 60 * 1000;
+    if (Date.now() - this.sessionStart > sessionLength) {
+      this.sessionStart = Date.now();
+      this.streak = 0;
+      this.results = { win: 0, loss: 0, draw: 0 };
+      await updateStats(this.results, this.streak);
+      await saveGameHistory(this.gameHistory);
+      console.log("Session started");
+    }
   };
 
   /**
@@ -343,7 +427,7 @@ class ChessBreak {
       chessBreakSessionStart,
       chessBreakSessionLength,
       currentTimeout,
-    } = await this.getLatestSessionData();
+    } = await getLatestSessionData();
 
     this.results = sessionStats;
     this.streak = chessBreakStreak;
@@ -380,28 +464,13 @@ class ChessBreak {
     ] as HTMLElement[];
   };
 
+  /**
+   * hides play buttons to stop tilting
+   */
   private hidePlayButtons = () => {
     const style = document.createElement("style");
     style.textContent = ".cb-hidden { visibility: hidden !important; }";
     document.body.appendChild(style);
-  };
-
-  /**
-   * Loads game history from local storage
-   * @returns The game history as a Map of url -> {result: string, reason: string, timestamp: number, players: {top: string, bottom: string, username: string}, url: string}
-   * or null if the game history is not found
-   */
-  private loadGameHistory = async (): Promise<Map<string, object> | null> => {
-    try {
-      const { gameHistory } = await chrome.storage.local.get("gameHistory");
-      if (gameHistory) {
-        console.log("Loaded game history:", this.gameUrls.size, "games");
-        return new Map(Object.entries(gameHistory));
-      }
-    } catch (error) {
-      console.error("Error loading game history:", error);
-    }
-    return null;
   };
 
   /*
@@ -420,12 +489,19 @@ class ChessBreak {
     const { top, bottom } = this.initPlayerNameElements();
     this.top = top;
     this.bottom = bottom;
-    let urls = await this.loadGameHistory();
+    let urls = await loadGameHistory();
     while (urls === null) {
       await new Promise((resolve) => setTimeout(resolve, 1000));
-      urls = await this.loadGameHistory();
+      urls = await loadGameHistory();
     }
-    this.gameUrls = urls;
+    this.gameHistory = urls as Array<{
+      url: string;
+      result: string;
+      reason: string;
+      timestamp: number;
+      players: { top: string; bottom: string; username: string };
+    }>;
+    this.isGameStarted();
   };
 
   isChessCom = (): boolean => {

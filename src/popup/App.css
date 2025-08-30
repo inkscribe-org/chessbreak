@@ -5,10 +5,18 @@
   border-radius: 10px;
 }
 
+* {
+  background-color: #3C3A38;
+}
+
 h1, h2, p, div, span {
   color: #F0F0F0;
 }
 
 .card {
   padding: 2em;
+}
+
+div {
+  background-color: #3C3A38;
 }
