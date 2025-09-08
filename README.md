@@ -67,8 +67,6 @@ Sessions automatically reset after 5 minutes of inactivity, or you can manually 
 
 ## Configuration
 
-_Settings panel coming soon..._
-
 - Customize loss streak limit (default: 3)
 - Adjust cooldown period (default: 5 minutes)
 - Set session timeout (default: 5 minutes)
@@ -102,19 +100,6 @@ npm run dev
 
 Load the `dist/` folder as an unpacked extension in Chrome.
 
-### Tech Stack
-
-- TypeScript
-- React (popup UI)
-- Chrome Extensions API
-- Vite + CRXJS
-
-## 🐛 Known Issues
-
-- Only supports chess.com (lichess support planned)
-- Requires page refresh after installation
-- Settings not yet configurable
-
 ## Roadmap
 
 - [ ] Configurable settings
@@ -124,32 +109,6 @@ Load the `dist/` folder as an unpacked extension in Chrome.
 - [ ] Time-based session tracking
 - [ ] Lichess.org support
 
-## Contributing
-
-Contributions welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
-
-### Areas for Contribution
-
-- Lichess integration
-- UI/UX improvements
-- Bug fixes
-- Additional chess sites
-- Performance optimizations
-
 ## 📄 License
 
 MIT License - see [LICENSE](LICENSE) for details
-
-## Acknowledgments
-
-- Chess.com for providing an excellent platform
-- The chess community for feedback and testing
-- All contributors who help improve ChessBreak
-
----

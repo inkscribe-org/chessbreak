@@ -11,6 +11,11 @@ enum GameState {
   ENDED,
 }
 
+// Add logging helper
+const logState = (context: string, data: any) => {
+  console.log(`[ChessBreak:${context}]`, data);
+};
+
 interface SessionData {
   sessionStats: { win: number; loss: number; draw: number };
   chessBreakStreak: number;
@@ -42,13 +47,18 @@ const loadGameHistory = async (): Promise<Array<{
   players: { top: string; bottom: string; username: string };
 }> | null> => {
   try {
+    logState("loadGameHistory", "Loading game history from storage");
     const { gameHistory } = await chrome.storage.local.get("gameHistory");
     if (gameHistory) {
-      console.log("Loaded game history:", gameHistory, "games");
+      logState(
+        "loadGameHistory",
+        `Loaded ${gameHistory.length} games from history`
+      );
       return gameHistory;
     }
+    logState("loadGameHistory", "No game history found in storage");
   } catch (error) {
-    console.error("Error loading game history:", error);
+    logState("loadGameHistory", `Error loading game history: ${error}`);
   }
   return null;
 };
@@ -66,6 +76,7 @@ const saveGameHistory = async (
     players: { top: string; bottom: string; username: string };
   }>
 ) => {
+  logState("saveGameHistory", `Saving ${gameHistory.length} games to storage`);
   await chrome.storage.local.set({
     gameHistory: gameHistory,
   });
@@ -76,6 +87,7 @@ const saveGameHistory = async (
  * @returns The latest session data
  */
 const getLatestSessionData = async (): Promise<SessionData> => {
+  logState("getLatestSessionData", "Loading session data from storage");
   let {
     sessionStats,
     chessBreakSessionStart,
@@ -95,15 +107,20 @@ const getLatestSessionData = async (): Promise<SessionData> => {
     "currentTimeoutStart",
     "gameHistory",
   ]);
+
   // TODO: modify session length with options page
   const sessionLength = chessBreakSessionLength
     ? chessBreakSessionLength
     : 5 * 60 * 1000;
+
   if (
     chessBreakSessionStart === undefined ||
     Date.now() - chessBreakSessionStart > sessionLength
   ) {
-    console.log("Session expired, resetting session stats");
+    logState(
+      "getLatestSessionData",
+      "Session expired, resetting session stats"
+    );
     chessBreakSessionStart = Date.now();
     chessBreakStreak = 0;
     sessionStats = {
@@ -119,8 +136,15 @@ const getLatestSessionData = async (): Promise<SessionData> => {
     });
     currentTimeout = 60000;
     currentTimeoutStart = 0;
+  } else {
+    logState(
+      "getLatestSessionData",
+      `Session active - streak: ${chessBreakStreak}, stats:`,
+      sessionStats
+    );
   }
-  return {
+
+  const sessionData = {
     sessionStats,
     chessBreakSessionStart,
     chessBreakStreak,
@@ -130,12 +154,19 @@ const getLatestSessionData = async (): Promise<SessionData> => {
     currentTimeoutStart,
     gameHistory,
   };
+
+  logState("getLatestSessionData", "Session data loaded:", sessionData);
+  return sessionData;
 };
 
 const updateStats = async (
   results: { win: number; loss: number; draw: number },
   streak: number
 ) => {
+  logState(
+    "updateStats",
+    `Updating stats - wins: ${results.win}, losses: ${results.loss}, draws: ${results.draw}, streak: ${streak}`
+  );
   await chrome.storage.local.set({
     sessionStats: results,
     chessBreakStreak: streak,
@@ -149,12 +180,17 @@ const updateStats = async (
  */
 const parseGameResult = (result: string): "win" | "loss" | "draw" => {
   const resultText = result.trim().toLowerCase();
+  logState("parseGameResult", `Parsing result: "${result}" -> "${resultText}"`);
+
   if (resultText.includes("draw")) {
+    logState("parseGameResult", "Result: DRAW");
     return "draw";
   }
   if (resultText.includes("white") || resultText.includes("black")) {
+    logState("parseGameResult", "Result: LOSS");
     return "loss";
   }
+  logState("parseGameResult", "Result: WIN");
   return "win";
 };
 
@@ -168,6 +204,10 @@ const getGameResultText = (
 ): { result: string; reason: string } => {
   const result = modal.querySelector(".header-title-component")?.textContent;
   const reason = modal.querySelector(".header-subtitle-component")?.textContent;
+  logState(
+    "getGameResultText",
+    `Modal result: "${result}", reason: "${reason}"`
+  );
   return { result: result || "", reason: reason || "" };
 };
 
@@ -179,7 +219,7 @@ class ChessBreak {
   bottom: Element | null = null;
   username: string | null = null;
   observer: MutationObserver | null = null;
-  isPlaying: boolean = false; // TODO: make this false even if it is the user's game but not the current game
+  isPlaying: boolean = false;
   currentUrl: string | null = null;
   prevUrl: string | null = null;
   results: { win: number; loss: number; draw: number } = {
@@ -202,13 +242,24 @@ class ChessBreak {
     players: { top: string; bottom: string; username: string };
   }> = [];
   gameState: GameState = GameState.NOT_STARTED;
+  drawButton: Element | null = null;
+  resignButton: Element | null = null;
 
   constructor() {
+    logState("constructor", "Initializing ChessBreak extension");
     this.currentUrl = window.location.href;
     this.username =
       document
         .querySelector("#notifications-request")
         ?.getAttribute("username") || null;
+
+    logState("constructor", `Current URL: ${this.currentUrl}`);
+    logState("constructor", `Username: ${this.username}`);
+    logState(
+      "constructor",
+      `Initial game state: ${this.gameState} (${GameState[this.gameState]})`
+    );
+
     this.gameHistory.push({
       url: this.currentUrl,
       result: "win",
@@ -222,15 +273,19 @@ class ChessBreak {
    * Sets up observers for watching for game end and player name changes
    */
   private initObservers = (): void => {
+    logState("initObservers", "Starting mutation observer");
     this.observer?.observe(document.body, MUTATION_CONFIG);
   };
 
-  // TODO: check for game result span to see if game is ended.
   /**
    * Initialize player name element selectors
    */
   private initPlayerNameElements = (): { top: Element; bottom: Element } => {
     const [top, bottom] = document.querySelectorAll(".cc-user-block-component");
+    logState(
+      "initPlayerNameElements",
+      `Found player elements - top: "${top?.textContent}", bottom: "${bottom?.textContent}"`
+    );
     return { top, bottom };
   };
 
@@ -241,6 +296,10 @@ class ChessBreak {
     const isPlaying =
       players[0].trim() === username.trim() ||
       players[1].trim() === username.trim();
+    logState(
+      "isPlayerPlaying",
+      `Checking if ${username} is playing against [${players[0]}, ${players[1]}] -> ${isPlaying}`
+    );
     return isPlaying;
   };
 
@@ -248,6 +307,7 @@ class ChessBreak {
    * Creates the mutation observer
    */
   private setupObserver = (): MutationObserver => {
+    logState("setupObserver", "Creating mutation observer");
     return new MutationObserver((mutations) => {
       // check game state
       this.isGameStarted(); // TODO: move this so it is called less times
@@ -259,8 +319,12 @@ class ChessBreak {
             if (node.nodeType === Node.ELEMENT_NODE) {
               const element = node as Element;
               if (
-                element.classList?.contains("board-modal-container-container")
+                element.classList?.contains(
+                  "board-modal-container-container"
+                ) &&
+                this.gameState === GameState.IN_PROGRESS
               ) {
+                logState("mutationObserver", "Game end modal detected");
                 this.playButtons = this.initPlayButtonElements();
                 this.handleGameEnd(element);
               }
@@ -268,7 +332,10 @@ class ChessBreak {
                 ".board-modal-container-container"
               );
               if (modal) {
-                console.log("Game result modal appeared in container!", modal);
+                logState(
+                  "mutationObserver",
+                  "Game result modal appeared in container!"
+                );
                 this.handleGameEnd(modal);
               }
             }
@@ -279,7 +346,10 @@ class ChessBreak {
               if (
                 element.classList?.contains("board-modal-container-container")
               ) {
-                console.log("Modal disappeared (user closed it)");
+                logState(
+                  "mutationObserver",
+                  "Modal disappeared (user closed it)"
+                );
               }
             }
           });
@@ -297,6 +367,10 @@ class ChessBreak {
     timeout: number
   ): Promise<number> => {
     const now = Date.now();
+    logState(
+      "updateCurrentTimeoutStart",
+      `Setting timeout start to ${now}, duration: ${timeout}ms`
+    );
     await chrome.storage.local.set({
       currentTimeoutStart: now,
       currentTimeout: timeout,
@@ -308,6 +382,10 @@ class ChessBreak {
    * Removes visibility  on the play buttons, sets a timer to resume play
    */
   private stopTilt = async () => {
+    logState(
+      "stopTilt",
+      `Starting tilt prevention - hiding ${this.playButtons.length} play buttons`
+    );
     this.playButtons.forEach((button) => {
       button.setAttribute("class", "cb-hidden");
     });
@@ -316,6 +394,7 @@ class ChessBreak {
       this.currentTimeout
     );
     setTimeout(async () => {
+      logState("stopTilt", "Timeout ended, restoring play buttons");
       this.playButtons.forEach((button) => {
         console.log(button);
         button.classList.remove("cb-hidden");
@@ -326,24 +405,42 @@ class ChessBreak {
   private handleGameWon = async () => {
     this.results.win++;
     this.streak++;
+    logState(
+      "handleGameWon",
+      `Game won! New stats - wins: ${this.results.win}, streak: ${this.streak}`
+    );
   };
 
   private handleGameLost = async () => {
     this.results.loss++;
     this.streak++;
+    logState(
+      "handleGameLost",
+      `Game lost! New stats - losses: ${this.results.loss}, streak: ${this.streak}`
+    );
     if (this.streak > 1 || this.results.loss > this.maxLosses) {
+      logState(
+        "handleGameLost",
+        `Triggering tilt prevention - streak: ${this.streak}, losses: ${this.results.loss}, maxLosses: ${this.maxLosses}`
+      );
       this.stopTilt();
     }
   };
 
   private handleGameDraw = () => {
     this.results.draw++;
+    logState(
+      "handleGameDraw",
+      `Game drawn! New stats - draws: ${this.results.draw}`
+    );
   };
 
   /*
    * Handles game end detection from MutationObserver, gets game result
    */
   private handleGameEnd = async (modalElement: Element) => {
+    this.gameState = GameState.ENDED;
+    logState("handleGameEnd", "Processing game end");
     if (!this.username) {
       throw new Error("Username not found");
     }
@@ -352,7 +449,7 @@ class ChessBreak {
       this.bottom?.textContent || "",
     ]);
     if (!playerIsPlaying) {
-      console.log("User not playing, ignoring game end");
+      logState("handleGameEnd", "User not playing, ignoring game end");
       return;
     }
     const { result, reason } = getGameResultText(modalElement);
@@ -372,31 +469,76 @@ class ChessBreak {
       this.handleGameDraw();
     }
 
+    // reset selectors
+    this.drawButton = null; // human chess
+    this.resignButton = null; // when playing bots
+    logState("handleGameEnd", "Reset game state selectors");
+
     await saveGameHistory(this.gameHistory);
     await updateStats(this.results, this.streak);
 
-    console.log("Results:", this.results, this.streak);
+    logState(
+      "handleGameEnd",
+      `Final results:`,
+      this.results,
+      `streak: ${this.streak}`
+    );
     await this.updateSessionStart();
   };
 
   private checkGameStarted = () => {
-    const gameStarted = document.querySelector(".draw-button-label");
-    return gameStarted !== null;
+    if (!this.drawButton) {
+      this.drawButton = document.querySelector(".draw-button-label");
+      if (this.drawButton) {
+        logState("checkGameStarted", "Found draw button");
+      }
+    }
+    if (!this.resignButton) {
+      this.resignButton = document.querySelector('[aria-label="Resign"]');
+      if (this.resignButton) {
+        logState("checkGameStarted", "Found resign button");
+      }
+    }
+    const gameStarted = this.drawButton !== null || this.resignButton !== null;
+    logState(
+      "checkGameStarted",
+      `Game started check: ${gameStarted} (draw: ${
+        this.drawButton !== null
+      }, resign: ${this.resignButton !== null})`
+    );
+    return gameStarted;
   };
 
   /**
    * Checks if game has started, updates gameState and sessionStart if it has
    */
   private isGameStarted = () => {
-    console.log("Checking game state", this.gameState);
+    if (this.gameState === GameState.IN_PROGRESS) {
+      return;
+    }
     const gameStarted = this.checkGameStarted();
+    logState(
+      "isGameStarted",
+      `Current game state: ${this.gameState} (${
+        GameState[this.gameState]
+      }), game started: ${gameStarted}`
+    );
+
     if (
       gameStarted &&
       (this.gameState === GameState.NOT_STARTED ||
         this.gameState === GameState.ENDED)
     ) {
       this.gameState = GameState.IN_PROGRESS;
+      logState(
+        "isGameStarted",
+        `Game state updated to IN_PROGRESS (${this.gameState})`
+      );
       this.sessionStart = Date.now();
+      logState(
+        "isGameStarted",
+        `Session start time set to: ${this.sessionStart}`
+      );
     }
   };
 
@@ -405,13 +547,21 @@ class ChessBreak {
    */
   private updateSessionStart = async () => {
     const sessionLength = this.sessionLength || 5 * 60 * 1000;
+    logState(
+      "updateSessionStart",
+      `Checking session - current: ${this.sessionStart}, length: ${sessionLength}ms`
+    );
+
     if (Date.now() - this.sessionStart > sessionLength) {
+      logState("updateSessionStart", "Session expired, starting new session");
       this.sessionStart = Date.now();
       this.streak = 0;
       this.results = { win: 0, loss: 0, draw: 0 };
       await updateStats(this.results, this.streak);
       await saveGameHistory(this.gameHistory);
-      console.log("Session started");
+      logState("updateSessionStart", "New session started with reset stats");
+    } else {
+      logState("updateSessionStart", "Session still active");
     }
   };
 
@@ -421,6 +571,7 @@ class ChessBreak {
    * If the session is older than 5 minutes, creates a new session
    */
   private initSessionStats = async (): Promise<void> => {
+    logState("initSessionStats", "Initializing session stats");
     const {
       sessionStats,
       chessBreakStreak,
@@ -434,6 +585,13 @@ class ChessBreak {
     this.sessionStart = chessBreakSessionStart;
     this.sessionLength = chessBreakSessionLength;
     this.currentTimeout = currentTimeout != 0 ? currentTimeout : 10000;
+
+    logState(
+      "initSessionStats",
+      `Session initialized - stats:`,
+      this.results,
+      `streak: ${this.streak}, timeout: ${this.currentTimeout}ms`
+    );
   };
 
   /**
@@ -442,6 +600,10 @@ class ChessBreak {
    */
   private initPlayButtonElements = (): HTMLElement[] => {
     if (this.playButtons.length > 0) {
+      logState(
+        "initPlayButtonElements",
+        `Using cached play buttons: ${this.playButtons.length}`
+      );
       return this.playButtons;
     }
     const newGameDiv = document.querySelectorAll(".new-game-buttons-buttons"); // restart div
@@ -456,18 +618,26 @@ class ChessBreak {
     }
     const gameOver = document.querySelectorAll(".game-over-buttons-component"); // restart div
     const newGameComponent = document.querySelectorAll(".new-game-component"); // play tab component
-    return [
+
+    const buttons = [
       ...newGameDiv,
       ...newGameComponent,
       ...gameOver,
       ...[newGameTab],
     ] as HTMLElement[];
+
+    logState(
+      "initPlayButtonElements",
+      `Found ${buttons.length} play buttons - newGameDiv: ${newGameDiv.length}, tabs: ${tabs.length}, gameOver: ${gameOver.length}, newGameComponent: ${newGameComponent.length}`
+    );
+    return buttons;
   };
 
   /**
    * hides play buttons to stop tilting
    */
   private hidePlayButtons = () => {
+    logState("hidePlayButtons", "Adding CSS to hide play buttons");
     const style = document.createElement("style");
     style.textContent = ".cb-hidden { visibility: hidden !important; }";
     document.body.appendChild(style);
@@ -477,6 +647,7 @@ class ChessBreak {
    * Sets up observers for watching for game end and player name changes
    **/
   start = async () => {
+    logState("start", "Starting ChessBreak extension");
     console.log("Starting observers");
     if (!this.username) {
       // TODO: handle this error
@@ -502,10 +673,13 @@ class ChessBreak {
       players: { top: string; bottom: string; username: string };
     }>;
     this.isGameStarted();
+    logState("start", "ChessBreak extension fully initialized");
   };
 
   isChessCom = (): boolean => {
-    return this.currentUrl?.includes("chess.com") ?? false;
+    const isChessCom = this.currentUrl?.includes("chess.com") ?? false;
+    logState("isChessCom", `Checking if chess.com: ${isChessCom}`);
+    return isChessCom;
   };
 }
 

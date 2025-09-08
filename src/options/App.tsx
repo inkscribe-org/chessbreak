@@ -119,7 +119,7 @@ function App() {
               />
             </label>
             <p className="option-description">
-              Number of losses before activating tilt mode 
+              Number of losses before activating tilt mode
             </p>
           </div>
 
