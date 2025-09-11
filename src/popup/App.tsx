@@ -21,22 +21,15 @@ export default function App() {
 
   const updateResults = async () => {
     const { sessionStats } = await chrome.storage.local.get("sessionStats");
-    setResults(
-      (sessionStats as { win: number; draw: number; loss: number }) || {
-        win: 0,
-        draw: 0,
-        loss: 0,
-      }
-    );
+    // Handle case where sessionStats might be undefined
+    setResults(sessionStats || { win: 0, draw: 0, loss: 0 });
     const { currentTimeoutStart, currentTimeout } =
       await chrome.storage.local.get(["currentTimeoutStart", "currentTimeout"]);
-    setTimeOut((currentTimeout as number) || 0);
+    setTimeOut(currentTimeout as number);
     if (currentTimeoutStart && currentTimeout) {
       setTimeLeft(
         currentTimeout - (Date.now() - (currentTimeoutStart as number))
       );
-    } else {
-      setTimeLeft(0);
     }
   };
 
@@ -116,25 +109,12 @@ export default function App() {
     await chrome.storage.local.set({
       sessionStats: { win: 0, draw: 0, loss: 0 },
       chessBreakStreak: 0,
-      chessBreakSessionStart: Date.now(),
+      chessBreakSessionStart: 0,
       chessBreakSessionLength: 0,
       currentTimeout: 0,
       currentTimeoutStart: 0,
       gameHistory: [],
     });
-
-    // Broadcast CLEAR_STATS to all chess.com tabs so content scripts reset in-memory state
-    try {
-      const tabs = await chrome.tabs.query({ url: "*://*.chess.com/*" });
-      for (const tab of tabs) {
-        if (tab.id !== undefined) {
-          chrome.tabs.sendMessage(tab.id, { type: "CLEAR_STATS" });
-        }
-      }
-    } catch (e) {
-      console.error("Error broadcasting CLEAR_STATS:", e);
-    }
-
     setGameHistory([]);
     window.close();
   };
@@ -267,29 +247,25 @@ export default function App() {
               style={{
                 margin: "0 0 8px 0",
                 fontSize: "14px",
-                color: "#374151",
               }}
             >
               Recent Games ({sortedGames.length})
             </h3>
-            <div style={{ maxHeight: "200px", overflowY: "auto" }}>
+            <div
+              style={{
+                maxHeight: "200px",
+                overflowY: "auto",
+              }}
+            >
               {sortedGames.map((game, index) => (
                 <div
                   key={index}
                   style={{
                     padding: "8px",
-                    marginBottom: "6px",
-                    border: "1px solid #e5e7eb",
-                    borderRadius: "6px",
+                    marginBottom: "8px",
                     cursor: "pointer",
                   }}
                   onClick={() => openGame(game.url)}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = "#f3f4f6";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = "#ffffff";
-                  }}
                 >
                   <div
                     style={{
@@ -316,7 +292,6 @@ export default function App() {
                   <div
                     style={{
                       fontSize: "11px",
-                      color: "#374151",
                       marginBottom: "2px",
                     }}
                   >
@@ -336,7 +311,6 @@ export default function App() {
                   <div
                     style={{
                       fontSize: "10px",
-                      color: "#3b82f6",
                       marginTop: "4px",
                     }}
                   >
@@ -360,12 +334,6 @@ export default function App() {
             backgroundColor: "#f3f4f6",
             color: "#374151",
             fontSize: "12px",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = "#e5e7eb";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = "#f3f4f6";
           }}
         >
           Clear Stats

@@ -1,12 +1,12 @@
 #root, :root {
   font-family: system-ui, sans-serif;
   max-width: fit-content;
-  background-color: #3C3A38;
+  background-color: #0e1419;
   border-radius: 10px;
 }
 
 * {
-  background-color: #3C3A38;
+  background-color: #0e1419;
 }
 
 h1, h2, p, div, span {
@@ -18,5 +18,5 @@ h1, h2, p, div, span {
 }
 
 div {
-  background-color: #3C3A38;
+  background-color: #0e1419;
 }
