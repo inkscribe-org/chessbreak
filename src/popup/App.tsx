@@ -21,15 +21,22 @@ export default function App() {
 
   const updateResults = async () => {
     const { sessionStats } = await chrome.storage.local.get("sessionStats");
-    // Handle case where sessionStats might be undefined
-    setResults(sessionStats || { win: 0, draw: 0, loss: 0 });
+    setResults(
+      (sessionStats as { win: number; draw: number; loss: number }) || {
+        win: 0,
+        draw: 0,
+        loss: 0,
+      }
+    );
     const { currentTimeoutStart, currentTimeout } =
       await chrome.storage.local.get(["currentTimeoutStart", "currentTimeout"]);
-    setTimeOut(currentTimeout as number);
+    setTimeOut((currentTimeout as number) || 0);
     if (currentTimeoutStart && currentTimeout) {
       setTimeLeft(
         currentTimeout - (Date.now() - (currentTimeoutStart as number))
       );
+    } else {
+      setTimeLeft(0);
     }
   };
 
@@ -109,12 +116,25 @@ export default function App() {
     await chrome.storage.local.set({
       sessionStats: { win: 0, draw: 0, loss: 0 },
       chessBreakStreak: 0,
-      chessBreakSessionStart: 0,
+      chessBreakSessionStart: Date.now(),
       chessBreakSessionLength: 0,
       currentTimeout: 0,
       currentTimeoutStart: 0,
       gameHistory: [],
     });
+
+    // Broadcast CLEAR_STATS to all chess.com tabs so content scripts reset in-memory state
+    try {
+      const tabs = await chrome.tabs.query({ url: "*://*.chess.com/*" });
+      for (const tab of tabs) {
+        if (tab.id !== undefined) {
+          chrome.tabs.sendMessage(tab.id, { type: "CLEAR_STATS" });
+        }
+      }
+    } catch (e) {
+      console.error("Error broadcasting CLEAR_STATS:", e);
+    }
+
     setGameHistory([]);
     window.close();
   };
