@@ -21,7 +21,8 @@ export default function App() {
 
   const updateResults = async () => {
     const { sessionStats } = await chrome.storage.local.get("sessionStats");
-    setResults(sessionStats as { win: number; draw: number; loss: number });
+    // Handle case where sessionStats might be undefined
+    setResults(sessionStats || { win: 0, draw: 0, loss: 0 });
     const { currentTimeoutStart, currentTimeout } =
       await chrome.storage.local.get(["currentTimeoutStart", "currentTimeout"]);
     setTimeOut(currentTimeout as number);
@@ -56,6 +57,10 @@ export default function App() {
             loss: number;
           }
         );
+      }
+
+      if (changes.gameHistory) {
+        loadGameHistory();
       }
 
       if (changes.currentTimeoutStart && changes.currentTimeout) {
@@ -171,175 +176,181 @@ export default function App() {
         fontFamily: "system-ui, sans-serif",
       }}
     >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: "12px",
-        }}
-      >
-        <h2 style={{ margin: 0, fontSize: "16px" }}>ChessBreak</h2>
-        <span style={{ fontSize: "12px", color: "#666" }}>Session</span>
-      </div>
-
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-around",
-          padding: "12px",
-          borderRadius: "8px",
-          marginBottom: "12px",
-        }}
-      >
-        <div style={{ textAlign: "center" }}>
-          <div
-            style={{ fontSize: "20px", fontWeight: "bold", color: "#22c55e" }}
-          >
-            {results.win}
-          </div>
-          <div style={{ fontSize: "11px" }}>WIN</div>
-        </div>
-        <div style={{ textAlign: "center" }}>
-          <div
-            style={{ fontSize: "20px", fontWeight: "bold", color: "#64748b" }}
-          >
-            {results.draw}
-          </div>
-          <div style={{ fontSize: "11px" }}>DRAW</div>
-        </div>
-        <div style={{ textAlign: "center" }}>
-          <div
-            style={{ fontSize: "20px", fontWeight: "bold", color: "#ef4444" }}
-          >
-            {results.loss}
-          </div>
-          <div style={{ fontSize: "11px" }}>LOSS</div>
-        </div>
-      </div>
-
-      {timeLeft > 0 && (
+      <div>
         <div
           style={{
-            fontSize: "14px",
-            color: "#dc2626",
-            fontWeight: "bold",
-            textAlign: "center",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
             marginBottom: "12px",
-            padding: "8px",
-            borderRadius: "6px",
           }}
         >
-          Time Remaining: {formatTime(timeLeft)}
+          <h2 style={{ margin: 0, fontSize: "16px" }}>ChessBreak</h2>
+          <span style={{ fontSize: "12px", color: "#666" }}>Session</span>
         </div>
-      )}
 
-      {/* Game History Section */}
-      {sortedGames.length > 0 && (
-        <div style={{ marginBottom: "12px" }}>
-          <h3
-            style={{ margin: "0 0 8px 0", fontSize: "14px", color: "#374151" }}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-around",
+            padding: "12px",
+            borderRadius: "8px",
+            marginBottom: "12px",
+          }}
+        >
+          <div style={{ textAlign: "center" }}>
+            <div
+              style={{ fontSize: "20px", fontWeight: "bold", color: "#22c55e" }}
+            >
+              {results.win}
+            </div>
+            <div style={{ fontSize: "11px" }}>WIN</div>
+          </div>
+          <div style={{ textAlign: "center" }}>
+            <div
+              style={{ fontSize: "20px", fontWeight: "bold", color: "#64748b" }}
+            >
+              {results.draw}
+            </div>
+            <div style={{ fontSize: "11px" }}>DRAW</div>
+          </div>
+          <div style={{ textAlign: "center" }}>
+            <div
+              style={{ fontSize: "20px", fontWeight: "bold", color: "#ef4444" }}
+            >
+              {results.loss}
+            </div>
+            <div style={{ fontSize: "11px" }}>LOSS</div>
+          </div>
+        </div>
+
+        {timeLeft > 0 && (
+          <div
+            style={{
+              fontSize: "14px",
+              color: "#dc2626",
+              fontWeight: "bold",
+              textAlign: "center",
+              marginBottom: "12px",
+              padding: "8px",
+              borderRadius: "6px",
+            }}
           >
-            Recent Games ({sortedGames.length})
-          </h3>
-          <div style={{ maxHeight: "200px", overflowY: "auto" }}>
-            {sortedGames.map((game, index) => (
-              <div
-                key={index}
-                style={{
-                  padding: "8px",
-                  marginBottom: "6px",
-                  border: "1px solid #e5e7eb",
-                  borderRadius: "6px",
-                  cursor: "pointer",
-                }}
-                onClick={() => openGame(game.url)}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = "#f3f4f6";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = "#ffffff";
-                }}
-              >
+            Time Remaining: {formatTime(timeLeft)}
+          </div>
+        )}
+
+        {/* Game History Section */}
+        {sortedGames.length > 0 && (
+          <div style={{ marginBottom: "12px" }}>
+            <h3
+              style={{
+                margin: "0 0 8px 0",
+                fontSize: "14px",
+                color: "#374151",
+              }}
+            >
+              Recent Games ({sortedGames.length})
+            </h3>
+            <div style={{ maxHeight: "200px", overflowY: "auto" }}>
+              {sortedGames.map((game, index) => (
                 <div
+                  key={index}
                   style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    marginBottom: "4px",
+                    padding: "8px",
+                    marginBottom: "6px",
+                    border: "1px solid #e5e7eb",
+                    borderRadius: "6px",
+                    cursor: "pointer",
+                  }}
+                  onClick={() => openGame(game.url)}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = "#f3f4f6";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = "#ffffff";
                   }}
                 >
-                  <span
+                  <div
                     style={{
-                      fontSize: "12px",
-                      fontWeight: "bold",
-                      color: getResultColor(game.result),
-                      textTransform: "uppercase",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      marginBottom: "4px",
                     }}
                   >
-                    {game.result}
-                  </span>
-                  <span style={{ fontSize: "10px", color: "#6b7280" }}>
-                    {formatDate(game.timestamp)}
-                  </span>
-                </div>
-                <div
-                  style={{
-                    fontSize: "11px",
-                    color: "#374151",
-                    marginBottom: "2px",
-                  }}
-                >
-                  {game.players.top} vs {game.players.bottom}
-                </div>
-                {game.reason && (
+                    <span
+                      style={{
+                        fontSize: "12px",
+                        fontWeight: "bold",
+                        color: getResultColor(game.result),
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      {game.result}
+                    </span>
+                    <span style={{ fontSize: "10px", color: "#6b7280" }}>
+                      {formatDate(game.timestamp)}
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "11px",
+                      color: "#374151",
+                      marginBottom: "2px",
+                    }}
+                  >
+                    {game.players.top} vs {game.players.bottom}
+                  </div>
+                  {game.reason && (
+                    <div
+                      style={{
+                        fontSize: "10px",
+                        color: "#6b7280",
+                        fontStyle: "italic",
+                      }}
+                    >
+                      {game.reason}
+                    </div>
+                  )}
                   <div
                     style={{
                       fontSize: "10px",
-                      color: "#6b7280",
-                      fontStyle: "italic",
+                      color: "#3b82f6",
+                      marginTop: "4px",
                     }}
                   >
-                    {game.reason}
+                    Click to open game →
                   </div>
-                )}
-                <div
-                  style={{
-                    fontSize: "10px",
-                    color: "#3b82f6",
-                    marginTop: "4px",
-                  }}
-                >
-                  Click to open game →
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      <button
-        onClick={clearStats}
-        style={{
-          cursor: "pointer",
-          border: "none",
-          background: "none",
-          width: "100%",
-          padding: "8px",
-          borderRadius: "6px",
-          backgroundColor: "#f3f4f6",
-          color: "#374151",
-          fontSize: "12px",
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.backgroundColor = "#e5e7eb";
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.backgroundColor = "#f3f4f6";
-        }}
-      >
-        Clear Stats
-      </button>
+        <button
+          onClick={clearStats}
+          style={{
+            cursor: "pointer",
+            border: "none",
+            background: "none",
+            width: "100%",
+            padding: "8px",
+            borderRadius: "6px",
+            backgroundColor: "#f3f4f6",
+            color: "#374151",
+            fontSize: "12px",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.backgroundColor = "#e5e7eb";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.backgroundColor = "#f3f4f6";
+          }}
+        >
+          Clear Stats
+        </button>
+      </div>
     </div>
   );
 }

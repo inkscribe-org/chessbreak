@@ -19,7 +19,7 @@ const DEFAULT_OPTIONS: ExtensionOptions = {
   storeGameHistory: true,
   gameHistoryRetention: 30,
   showNotifications: true,
-  autoResetStats: true,
+  autoResetStats: false,
   enableTiltMode: true,
 };
 

@@ -393,6 +393,12 @@ class ChessBreak {
     this.currentTimeoutStart = await this.updateCurrentTimeoutStart(
       this.currentTimeout
     );
+    chrome.runtime.sendMessage({
+      type: "TILT_STARTED",
+      data: {
+        playButtons: this.playButtons,
+      },
+    });
     setTimeout(async () => {
       logState("stopTilt", "Timeout ended, restoring play buttons");
       this.playButtons.forEach((button) => {
@@ -455,12 +461,22 @@ class ChessBreak {
     const { result, reason } = getGameResultText(modalElement);
     const gameResult = parseGameResult(result);
 
+    this.gameHistory.push({
+      url: window.location.href,
+      result: gameResult,
+      reason: reason,
+      timestamp: Date.now(),
+      players: {
+        top: this.top?.textContent ?? "",
+        bottom: this.bottom?.textContent ?? "",
+        username: this.username ?? "",
+      },
+    });
     try {
       await chrome.storage.local.set({ gameHistory: this.gameHistory });
     } catch (error) {
       console.error("Error storing game info:", error);
     }
-
     if (gameResult === "win") {
       this.handleGameWon();
     } else if (gameResult === "loss") {
@@ -468,20 +484,15 @@ class ChessBreak {
     } else if (gameResult === "draw") {
       this.handleGameDraw();
     }
-
     // reset selectors
     this.drawButton = null; // human chess
     this.resignButton = null; // when playing bots
     logState("handleGameEnd", "Reset game state selectors");
-
     await saveGameHistory(this.gameHistory);
     await updateStats(this.results, this.streak);
-
     logState(
       "handleGameEnd",
-      `Final results:`,
-      this.results,
-      `streak: ${this.streak}`
+      `Final results: ${JSON.stringify(this.results)}, streak: ${this.streak}`
     );
     await this.updateSessionStart();
   };
@@ -500,12 +511,6 @@ class ChessBreak {
       }
     }
     const gameStarted = this.drawButton !== null || this.resignButton !== null;
-    logState(
-      "checkGameStarted",
-      `Game started check: ${gameStarted} (draw: ${
-        this.drawButton !== null
-      }, resign: ${this.resignButton !== null})`
-    );
     return gameStarted;
   };
 
@@ -588,9 +593,9 @@ class ChessBreak {
 
     logState(
       "initSessionStats",
-      `Session initialized - stats:`,
-      this.results,
-      `streak: ${this.streak}, timeout: ${this.currentTimeout}ms`
+      `Session initialized - stats: ${JSON.stringify(this.results)}, streak: ${
+        this.streak
+      }, timeout: ${this.currentTimeout}ms`
     );
   };
 
