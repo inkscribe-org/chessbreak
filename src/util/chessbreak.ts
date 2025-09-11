@@ -259,14 +259,6 @@ class ChessBreak {
       "constructor",
       `Initial game state: ${this.gameState} (${GameState[this.gameState]})`
     );
-
-    this.gameHistory.push({
-      url: this.currentUrl,
-      result: "win",
-      reason: "test",
-      timestamp: Date.now(),
-      players: { top: "", bottom: "", username: "" },
-    });
   }
 
   /**
@@ -393,14 +385,12 @@ class ChessBreak {
     this.currentTimeoutStart = await this.updateCurrentTimeoutStart(
       this.currentTimeout
     );
-    chrome.runtime.sendMessage({
-      type: "TILT_STARTED",
-      data: {
-        playButtons: this.playButtons,
-      },
-    });
     setTimeout(async () => {
       logState("stopTilt", "Timeout ended, restoring play buttons");
+      chrome.runtime.sendMessage({
+        type: "TILT_ENDED",
+        data: { timeout: this.currentTimeout },
+      });
       this.playButtons.forEach((button) => {
         console.log(button);
         button.classList.remove("cb-hidden");
@@ -679,6 +669,33 @@ class ChessBreak {
     }>;
     this.isGameStarted();
     logState("start", "ChessBreak extension fully initialized");
+
+    // Set up message listener for CLEAR_STATS to keep in-memory state in sync
+    chrome.runtime.onMessage.addListener((message, _sender, _sendResponse) => {
+      if (message?.type === "CLEAR_STATS") {
+        logState(
+          "message",
+          "Received CLEAR_STATS - resetting state and storage"
+        );
+        (async () => {
+          this.results = { win: 0, loss: 0, draw: 0 };
+          this.streak = 0;
+          this.sessionStart = Date.now();
+          this.currentTimeout = 0;
+          this.currentTimeoutStart = 0;
+          this.gameHistory = [];
+          await chrome.storage.local.set({
+            sessionStats: { win: 0, draw: 0, loss: 0 },
+            chessBreakStreak: 0,
+            chessBreakSessionStart: this.sessionStart,
+            currentTimeout: 0,
+            currentTimeoutStart: 0,
+            gameHistory: [],
+          });
+          logState("message", "State and storage cleared");
+        })();
+      }
+    });
   };
 
   isChessCom = (): boolean => {
