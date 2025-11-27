@@ -34,6 +34,42 @@ interface SessionData {
   gameState: GameState;
 }
 
+interface ExtensionOptions {
+  maxLosses: number;
+  timeoutDuration: number;
+  sessionLength: number;
+  storeGameHistory: boolean;
+  gameHistoryRetention: number;
+  showNotifications: boolean;
+  autoResetStats: boolean;
+  enableTiltMode: boolean;
+}
+
+const DEFAULT_OPTIONS: ExtensionOptions = {
+  maxLosses: 3,
+  timeoutDuration: 300,
+  sessionLength: 5,
+  storeGameHistory: true,
+  gameHistoryRetention: 30,
+  showNotifications: true,
+  autoResetStats: false,
+  enableTiltMode: true,
+};
+
+/**
+ * Loads extension options from sync storage
+ * @returns The extension options
+ */
+const loadOptions = async (): Promise<ExtensionOptions> => {
+  try {
+    const result = await chrome.storage.sync.get(Object.keys(DEFAULT_OPTIONS));
+    return { ...DEFAULT_OPTIONS, ...result };
+  } catch (error) {
+    logState("loadOptions", `Error loading options: ${error}`);
+    return DEFAULT_OPTIONS;
+  }
+};
+
 /**
  * Loads game history from local storage
  * @returns The game history as a Map of url -> {result: string, reason: string, timestamp: number, players: {top: string, bottom: string, username: string}, url: string}
@@ -88,12 +124,12 @@ const saveGameHistory = async (
  */
 const getLatestSessionData = async (): Promise<SessionData> => {
   logState("getLatestSessionData", "Loading session data from storage");
+  const options = await loadOptions();
   let {
     sessionStats,
     chessBreakSessionStart,
     chessBreakStreak,
     chessBreakSessionLength,
-    maxLosses,
     currentTimeout,
     currentTimeoutStart,
     gameHistory,
@@ -102,16 +138,12 @@ const getLatestSessionData = async (): Promise<SessionData> => {
     "chessBreakSessionStart",
     "chessBreakStreak",
     "chessBreakSessionLength",
-    "maxLosses",
     "currentTimeout",
     "currentTimeoutStart",
     "gameHistory",
   ]);
 
-  // TODO: modify session length with options page
-  const sessionLength = chessBreakSessionLength
-    ? chessBreakSessionLength
-    : 5 * 60 * 1000;
+  const sessionLength = (chessBreakSessionLength || options.sessionLength) * 60 * 1000;
 
   if (
     chessBreakSessionStart === undefined ||
@@ -132,24 +164,19 @@ const getLatestSessionData = async (): Promise<SessionData> => {
       sessionStats: sessionStats,
       chessBreakSessionStart,
       chessBreakStreak,
+      chessBreakSessionLength: options.sessionLength,
       gameHistory: [], // overwrite game history because the session is over
     });
-    currentTimeout = 5 * 60 * 1000;
+    currentTimeout = options.timeoutDuration * 60 * 1000;
     currentTimeoutStart = 0;
-  } else {
-    logState(
-      "getLatestSessionData",
-      `Session active - streak: ${chessBreakStreak}, stats:
-      ${sessionStats}`,
-    );
   }
 
   const sessionData = {
     sessionStats,
     chessBreakSessionStart,
     chessBreakStreak,
-    chessBreakSessionLength,
-    maxLosses,
+    chessBreakSessionLength: options.sessionLength,
+    maxLosses: options.maxLosses,
     currentTimeout,
     currentTimeoutStart,
     gameHistory,
@@ -573,10 +600,11 @@ class ChessBreak {
   /**
    * Initializes session stats from local storage
    * If no session stats are found, creates a new session
-   * If the session is older than 5 minutes, creates a new session
+   * If the session is older than session length, creates a new session
    */
   private initSessionStats = async (): Promise<void> => {
     logState("initSessionStats", "Initializing session stats");
+    const options = await loadOptions();
     const {
       sessionStats,
       chessBreakStreak,
@@ -588,14 +616,15 @@ class ChessBreak {
     this.results = sessionStats;
     this.streak = chessBreakStreak;
     this.sessionStart = chessBreakSessionStart;
-    this.sessionLength = chessBreakSessionLength;
-    this.currentTimeout = currentTimeout != 0 ? currentTimeout : 5 * 60 * 1000;
+    this.sessionLength = (chessBreakSessionLength || options.sessionLength) * 60 * 1000;
+    this.maxLosses = options.maxLosses;
+    this.currentTimeout = currentTimeout != 0 ? currentTimeout : options.timeoutDuration * 60 * 1000;
 
     logState(
       "initSessionStats",
       `Session initialized - stats: ${JSON.stringify(this.results)}, streak: ${
         this.streak
-      }, timeout: ${this.currentTimeout}ms`,
+      }, timeout: ${this.currentTimeout}ms, maxLosses: ${this.maxLosses}`,
     );
   };
 

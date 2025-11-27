@@ -13,8 +13,8 @@ interface ExtensionOptions {
 }
 
 const DEFAULT_OPTIONS: ExtensionOptions = {
-  maxLosses: 5,
-  timeoutDuration: 10,
+  maxLosses: 3,
+  timeoutDuration: 300,
   sessionLength: 5,
   storeGameHistory: true,
   gameHistoryRetention: 30,
@@ -123,27 +123,27 @@ function App() {
             </p>
           </div>
 
-          <div className="option-group">
-            <label className="option-label">
-              Break Duration (seconds):
-              <input
-                type="number"
-                min="5"
-                max="300"
-                value={options.timeoutDuration}
-                onChange={(e) =>
-                  handleOptionChange(
-                    "timeoutDuration",
-                    parseInt(e.target.value)
-                  )
-                }
-                disabled={!options.enableTiltMode}
-              />
-            </label>
-            <p className="option-description">
-              How long to hide play buttons during a break (5-300 seconds)
-            </p>
-          </div>
+           <div className="option-group">
+             <label className="option-label">
+               Break Duration (minutes):
+               <input
+                 type="number"
+                 min="1"
+                 max="60"
+                 value={options.timeoutDuration}
+                 onChange={(e) =>
+                   handleOptionChange(
+                     "timeoutDuration",
+                     parseInt(e.target.value)
+                   )
+                 }
+                 disabled={!options.enableTiltMode}
+               />
+             </label>
+             <p className="option-description">
+               How long to hide play buttons during a break (1-60 minutes)
+             </p>
+           </div>
         </section>
 
         {/* Session Settings */}
