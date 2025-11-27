@@ -52,7 +52,7 @@ const loadGameHistory = async (): Promise<Array<{
     if (gameHistory) {
       logState(
         "loadGameHistory",
-        `Loaded ${gameHistory.length} games from history`
+        `Loaded ${gameHistory.length} games from history`,
       );
       return gameHistory;
     }
@@ -74,7 +74,7 @@ const saveGameHistory = async (
     reason: string;
     timestamp: number;
     players: { top: string; bottom: string; username: string };
-  }>
+  }>,
 ) => {
   logState("saveGameHistory", `Saving ${gameHistory.length} games to storage`);
   await chrome.storage.local.set({
@@ -119,7 +119,7 @@ const getLatestSessionData = async (): Promise<SessionData> => {
   ) {
     logState(
       "getLatestSessionData",
-      "Session expired, resetting session stats"
+      "Session expired, resetting session stats",
     );
     chessBreakSessionStart = Date.now();
     chessBreakStreak = 0;
@@ -134,13 +134,13 @@ const getLatestSessionData = async (): Promise<SessionData> => {
       chessBreakStreak,
       gameHistory: [], // overwrite game history because the session is over
     });
-    currentTimeout = 60000;
+    currentTimeout = 5 * 60 * 1000;
     currentTimeoutStart = 0;
   } else {
     logState(
       "getLatestSessionData",
-      `Session active - streak: ${chessBreakStreak}, stats:`,
-      sessionStats
+      `Session active - streak: ${chessBreakStreak}, stats:
+      ${sessionStats}`,
     );
   }
 
@@ -153,25 +153,27 @@ const getLatestSessionData = async (): Promise<SessionData> => {
     currentTimeout,
     currentTimeoutStart,
     gameHistory,
+    gameState: GameState.NOT_STARTED,
   };
 
-  logState("getLatestSessionData", "Session data loaded:", sessionData);
+  logState("getLatestSessionData", `Session data loaded: ${sessionData}`);
   return sessionData;
 };
 
 const updateStats = async (
   results: { win: number; loss: number; draw: number },
-  streak: number
+  streak: number,
 ) => {
   logState(
     "updateStats",
-    `Updating stats - wins: ${results.win}, losses: ${results.loss}, draws: ${results.draw}, streak: ${streak}`
+    `Updating stats - wins: ${results.win}, losses: ${results.loss}, draws: ${results.draw}, streak: ${streak}`,
   );
   await chrome.storage.local.set({
     sessionStats: results,
     chessBreakStreak: streak,
   });
 };
+
 
 /**
  * Parses the game result from the modal.
@@ -200,13 +202,13 @@ const parseGameResult = (result: string): "win" | "loss" | "draw" => {
  * @returns The game result text
  */
 const getGameResultText = (
-  modal: Element
+  modal: Element,
 ): { result: string; reason: string } => {
   const result = modal.querySelector(".header-title-component")?.textContent;
   const reason = modal.querySelector(".header-subtitle-component")?.textContent;
   logState(
     "getGameResultText",
-    `Modal result: "${result}", reason: "${reason}"`
+    `Modal result: "${result}", reason: "${reason}"`,
   );
   return { result: result || "", reason: reason || "" };
 };
@@ -231,9 +233,9 @@ class ChessBreak {
   streak: number = 0;
   sessionStart: number = 0;
   sessionLength: number = 0;
-  maxLosses: number = 5;
+  maxLosses: number = 3;
   currentTimeoutStart: number = 0;
-  currentTimeout: number = 10000;
+  currentTimeout: number = 5 * 60 * 1000;
   gameHistory: Array<{
     url: string;
     result: string;
@@ -257,7 +259,7 @@ class ChessBreak {
     logState("constructor", `Username: ${this.username}`);
     logState(
       "constructor",
-      `Initial game state: ${this.gameState} (${GameState[this.gameState]})`
+      `Initial game state: ${this.gameState} (${GameState[this.gameState]})`,
     );
   }
 
@@ -276,7 +278,7 @@ class ChessBreak {
     const [top, bottom] = document.querySelectorAll(".cc-user-block-component");
     logState(
       "initPlayerNameElements",
-      `Found player elements - top: "${top?.textContent}", bottom: "${bottom?.textContent}"`
+      `Found player elements - top: "${top?.textContent}", bottom: "${bottom?.textContent}"`,
     );
     return { top, bottom };
   };
@@ -290,7 +292,7 @@ class ChessBreak {
       players[1].trim() === username.trim();
     logState(
       "isPlayerPlaying",
-      `Checking if ${username} is playing against [${players[0]}, ${players[1]}] -> ${isPlaying}`
+      `Checking if ${username} is playing against [${players[0]}, ${players[1]}] -> ${isPlaying}`,
     );
     return isPlaying;
   };
@@ -312,7 +314,7 @@ class ChessBreak {
               const element = node as Element;
               if (
                 element.classList?.contains(
-                  "board-modal-container-container"
+                  "board-modal-container-container",
                 ) &&
                 this.gameState === GameState.IN_PROGRESS
               ) {
@@ -321,12 +323,12 @@ class ChessBreak {
                 this.handleGameEnd(element);
               }
               const modal = element.querySelector?.(
-                ".board-modal-container-container"
+                ".board-modal-container-container",
               );
               if (modal) {
                 logState(
                   "mutationObserver",
-                  "Game result modal appeared in container!"
+                  "Game result modal appeared in container!",
                 );
                 this.handleGameEnd(modal);
               }
@@ -340,7 +342,7 @@ class ChessBreak {
               ) {
                 logState(
                   "mutationObserver",
-                  "Modal disappeared (user closed it)"
+                  "Modal disappeared (user closed it)",
                 );
               }
             }
@@ -356,12 +358,12 @@ class ChessBreak {
    * @returns The current timeout start
    */
   private updateCurrentTimeoutStart = async (
-    timeout: number
+    timeout: number,
   ): Promise<number> => {
     const now = Date.now();
     logState(
       "updateCurrentTimeoutStart",
-      `Setting timeout start to ${now}, duration: ${timeout}ms`
+      `Setting timeout start to ${now}, duration: ${timeout}ms`,
     );
     await chrome.storage.local.set({
       currentTimeoutStart: now,
@@ -376,15 +378,22 @@ class ChessBreak {
   private stopTilt = async () => {
     logState(
       "stopTilt",
-      `Starting tilt prevention - hiding ${this.playButtons.length} play buttons`
+      `Starting tilt prevention - hiding ${this.playButtons.length} play buttons`,
     );
     this.playButtons.forEach((button) => {
       button.setAttribute("class", "cb-hidden");
     });
     console.log("Removing Tilt");
     this.currentTimeoutStart = await this.updateCurrentTimeoutStart(
-      this.currentTimeout
+      this.currentTimeout,
     );
+
+    // Send notification that tilt prevention has started
+    chrome.runtime.sendMessage({
+      type: "TILT_STARTED",
+      data: { timeout: this.currentTimeout },
+    });
+
     setTimeout(async () => {
       logState("stopTilt", "Timeout ended, restoring play buttons");
       chrome.runtime.sendMessage({
@@ -400,10 +409,10 @@ class ChessBreak {
 
   private handleGameWon = async () => {
     this.results.win++;
-    this.streak++;
+    this.streak = 0;
     logState(
       "handleGameWon",
-      `Game won! New stats - wins: ${this.results.win}, streak: ${this.streak}`
+      `Game won! New stats - wins: ${this.results.win}, streak: ${this.streak}`,
     );
   };
 
@@ -412,12 +421,12 @@ class ChessBreak {
     this.streak++;
     logState(
       "handleGameLost",
-      `Game lost! New stats - losses: ${this.results.loss}, streak: ${this.streak}`
+      `Game lost! New stats - losses: ${this.results.loss}, streak: ${this.streak}`,
     );
-    if (this.streak > 1 || this.results.loss > this.maxLosses) {
+    if (this.streak >= this.maxLosses) {
       logState(
         "handleGameLost",
-        `Triggering tilt prevention - streak: ${this.streak}, losses: ${this.results.loss}, maxLosses: ${this.maxLosses}`
+        `Triggering tilt prevention - streak: ${this.streak}, losses: ${this.results.loss}, maxLosses: ${this.maxLosses}`,
       );
       this.stopTilt();
     }
@@ -425,9 +434,10 @@ class ChessBreak {
 
   private handleGameDraw = () => {
     this.results.draw++;
+    this.streak = 0;
     logState(
       "handleGameDraw",
-      `Game drawn! New stats - draws: ${this.results.draw}`
+      `Game drawn! New stats - draws: ${this.results.draw}, streak: ${this.streak}`,
     );
   };
 
@@ -482,7 +492,7 @@ class ChessBreak {
     await updateStats(this.results, this.streak);
     logState(
       "handleGameEnd",
-      `Final results: ${JSON.stringify(this.results)}, streak: ${this.streak}`
+      `Final results: ${JSON.stringify(this.results)}, streak: ${this.streak}`,
     );
     await this.updateSessionStart();
   };
@@ -516,7 +526,7 @@ class ChessBreak {
       "isGameStarted",
       `Current game state: ${this.gameState} (${
         GameState[this.gameState]
-      }), game started: ${gameStarted}`
+      }), game started: ${gameStarted}`,
     );
 
     if (
@@ -527,12 +537,12 @@ class ChessBreak {
       this.gameState = GameState.IN_PROGRESS;
       logState(
         "isGameStarted",
-        `Game state updated to IN_PROGRESS (${this.gameState})`
+        `Game state updated to IN_PROGRESS (${this.gameState})`,
       );
       this.sessionStart = Date.now();
       logState(
         "isGameStarted",
-        `Session start time set to: ${this.sessionStart}`
+        `Session start time set to: ${this.sessionStart}`,
       );
     }
   };
@@ -544,7 +554,7 @@ class ChessBreak {
     const sessionLength = this.sessionLength || 5 * 60 * 1000;
     logState(
       "updateSessionStart",
-      `Checking session - current: ${this.sessionStart}, length: ${sessionLength}ms`
+      `Checking session - current: ${this.sessionStart}, length: ${sessionLength}ms`,
     );
 
     if (Date.now() - this.sessionStart > sessionLength) {
@@ -579,13 +589,13 @@ class ChessBreak {
     this.streak = chessBreakStreak;
     this.sessionStart = chessBreakSessionStart;
     this.sessionLength = chessBreakSessionLength;
-    this.currentTimeout = currentTimeout != 0 ? currentTimeout : 10000;
+    this.currentTimeout = currentTimeout != 0 ? currentTimeout : 5 * 60 * 1000;
 
     logState(
       "initSessionStats",
       `Session initialized - stats: ${JSON.stringify(this.results)}, streak: ${
         this.streak
-      }, timeout: ${this.currentTimeout}ms`
+      }, timeout: ${this.currentTimeout}ms`,
     );
   };
 
@@ -597,7 +607,7 @@ class ChessBreak {
     if (this.playButtons.length > 0) {
       logState(
         "initPlayButtonElements",
-        `Using cached play buttons: ${this.playButtons.length}`
+        `Using cached play buttons: ${this.playButtons.length}`,
       );
       return this.playButtons;
     }
@@ -623,7 +633,7 @@ class ChessBreak {
 
     logState(
       "initPlayButtonElements",
-      `Found ${buttons.length} play buttons - newGameDiv: ${newGameDiv.length}, tabs: ${tabs.length}, gameOver: ${gameOver.length}, newGameComponent: ${newGameComponent.length}`
+      `Found ${buttons.length} play buttons - newGameDiv: ${newGameDiv.length}, tabs: ${tabs.length}, gameOver: ${gameOver.length}, newGameComponent: ${newGameComponent.length}`,
     );
     return buttons;
   };
@@ -675,7 +685,7 @@ class ChessBreak {
       if (message?.type === "CLEAR_STATS") {
         logState(
           "message",
-          "Received CLEAR_STATS - resetting state and storage"
+          "Received CLEAR_STATS - resetting state and storage",
         );
         (async () => {
           this.results = { win: 0, loss: 0, draw: 0 };

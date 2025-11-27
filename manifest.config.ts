@@ -14,12 +14,15 @@ export default defineManifest({
     },
     default_popup: "src/popup/index.html",
   },
-  permissions: ["contentSettings", "storage"],
+  permissions: ["contentSettings", "storage", "notifications"],
   content_scripts: [
     {
       js: ["src/content/main.tsx"],
       matches: ["https://*/*"],
     },
   ],
+  background: {
+    service_worker: "src/background/index.ts",
+  },
   options_page: "src/options/index.html",
 });
