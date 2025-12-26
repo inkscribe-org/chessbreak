@@ -173,7 +173,7 @@ const getLatestSessionData = async (): Promise<SessionData> => {
   ) {
     logState(
       "getLatestSessionData",
-      "Session expired, resetting session stats",
+      "Session expired, resetting session stats (preserving long-term data)",
     );
     chessBreakSessionStart = Date.now();
     chessBreakStreak = 0;
@@ -182,15 +182,19 @@ const getLatestSessionData = async (): Promise<SessionData> => {
       loss: 0,
       draw: 0,
     } as SessionData["sessionStats"];
+
+    // Set session rating start to current rating if available
+    if (currentRating !== undefined && sessionRatingStart === undefined) {
+      sessionRatingStart = currentRating;
+      logState("getLatestSessionData", `Set session rating start to current rating: ${sessionRatingStart}`);
+    }
+
     await chrome.storage.local.set({
       sessionStats: sessionStats,
       chessBreakSessionStart,
       chessBreakStreak,
       chessBreakSessionLength: options.sessionLength,
-      gameHistory: [], // overwrite game history because the session is over
-      totalTiltCount: 0,
-      currentRating: undefined,
-      sessionRatingStart: undefined,
+      // gameHistory, currentRating, sessionRatingStart, totalTiltCount persist across sessions
     });
     currentTimeout = options.timeoutDuration * 60 * 1000;
     currentTimeoutStart = 0;
@@ -591,8 +595,15 @@ class ChessBreak {
     const ratingChange = this.extractRatingChange(modalElement);
 
     // Update current rating if we have rating change info
-    if (ratingChange !== null && this.currentRating !== undefined) {
-      this.currentRating += ratingChange;
+    if (ratingChange !== null) {
+      if (this.currentRating === undefined) {
+        // First rating detected in this session - assume this is the starting rating
+        // The rating change represents the net change from some baseline
+        this.currentRating = ratingChange; // This is actually the rating after the change
+        logState("handleGameEnd", `Initialized current rating: ${this.currentRating}`);
+      } else {
+        this.currentRating += ratingChange;
+      }
       await chrome.storage.local.set({ currentRating: this.currentRating });
       logState("handleGameEnd", `Updated rating: ${this.currentRating} (change: ${ratingChange})`);
     }

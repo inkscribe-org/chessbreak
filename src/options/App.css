@@ -198,6 +198,63 @@ h1, h2, p, div, span {
   padding: 2rem;
 }
 
+.peak-hours-list {
+  margin-top: 1rem;
+}
+
+.peak-hour-item {
+  display: flex;
+  align-items: center;
+  padding: 1rem;
+  background-color: #3a3a3a;
+  border-radius: 6px;
+  margin-bottom: 0.5rem;
+  border: 1px solid #4a4a4a;
+}
+
+.hour-rank {
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: #667eea;
+  margin-right: 1rem;
+  min-width: 2rem;
+}
+
+.hour-details {
+  flex: 1;
+}
+
+.hour-time {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #f0f0f0;
+  margin-bottom: 0.25rem;
+}
+
+.hour-stats {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.9rem;
+  color: #ccc;
+}
+
+.hour-win-rate {
+  color: #4ade80;
+  font-weight: 500;
+}
+
+.hour-rating-change.positive {
+  color: #4ade80;
+}
+
+.hour-rating-change.negative {
+  color: #f87171;
+}
+
+.hour-games {
+  color: #888;
+}
+
 .options-content {
   padding: 2rem;
 }

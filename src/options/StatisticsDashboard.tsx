@@ -21,6 +21,13 @@ interface DashboardStats {
   longestLossStreak: number;
   gamesToday: number;
   ratingChangeToday: number;
+  sessionRatingChange: number;
+  peakHours: {
+    hour: number;
+    winRate: number;
+    avgRatingChange: number;
+    gamesPlayed: number;
+  }[];
 }
 
 interface StatisticsDashboardProps {
@@ -37,6 +44,8 @@ function StatisticsDashboard({ onBack }: StatisticsDashboardProps) {
     longestLossStreak: 0,
     gamesToday: 0,
     ratingChangeToday: 0,
+    sessionRatingChange: 0,
+    peakHours: [],
   });
   const [gameHistory, setGameHistory] = useState<GameHistoryEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -53,8 +62,10 @@ function StatisticsDashboard({ onBack }: StatisticsDashboardProps) {
       setGameHistory(historyArray);
 
       // Load session stats
-      const { totalTiltCount } = await chrome.storage.local.get([
-        "totalTiltCount"
+      const { totalTiltCount, currentRating, sessionRatingStart } = await chrome.storage.local.get([
+        "totalTiltCount",
+        "currentRating",
+        "sessionRatingStart"
       ]);
 
       // Calculate dashboard statistics
@@ -98,11 +109,56 @@ function StatisticsDashboard({ onBack }: StatisticsDashboardProps) {
 
       const todaysGames = historyArray.filter((game: GameHistoryEntry) => game.timestamp >= todayTimestamp);
       const gamesToday = todaysGames.length;
-      const ratingChangeToday = todaysGames
-        .filter((game: GameHistoryEntry) => game.ratingChange !== undefined)
-        .reduce((sum: number, game: GameHistoryEntry) => sum + game.ratingChange!, 0);
+       const ratingChangeToday = todaysGames
+         .filter((game: GameHistoryEntry) => game.ratingChange !== undefined)
+         .reduce((sum: number, game: GameHistoryEntry) => sum + game.ratingChange!, 0);
 
-      setStats({
+       // Calculate session rating change
+       const sessionRatingChange = (currentRating !== undefined && sessionRatingStart !== undefined)
+         ? currentRating - sessionRatingStart
+         : 0;
+
+       // Calculate peak performance hours
+       const hourStats: { [hour: number]: { games: number; wins: number; ratingChanges: number[] } } = {};
+       historyArray.forEach((game: GameHistoryEntry) => {
+         const hour = new Date(game.timestamp).getHours();
+         if (!hourStats[hour]) {
+           hourStats[hour] = { games: 0, wins: 0, ratingChanges: [] };
+         }
+         hourStats[hour].games++;
+         if (game.result === 'win') {
+           hourStats[hour].wins++;
+         }
+         if (game.ratingChange !== undefined) {
+           hourStats[hour].ratingChanges.push(game.ratingChange);
+         }
+       });
+
+       const peakHours = Object.entries(hourStats)
+         .map(([hour, stats]) => ({
+           hour: parseInt(hour),
+           winRate: stats.games > 0 ? (stats.wins / stats.games) * 100 : 0,
+           avgRatingChange: stats.ratingChanges.length > 0
+             ? stats.ratingChanges.reduce((sum, change) => sum + change, 0) / stats.ratingChanges.length
+             : 0,
+           gamesPlayed: stats.games
+         }))
+         .filter(hour => hour.gamesPlayed >= 3) // Only include hours with at least 3 games
+         .sort((a, b) => {
+           // Sort by win rate first, then by average rating change
+           if (Math.abs(a.winRate - b.winRate) > 1) {
+             return b.winRate - a.winRate;
+           }
+           return b.avgRatingChange - a.avgRatingChange;
+         })
+         .slice(0, 3) // Top 3 peak hours
+         .map(hour => ({
+           ...hour,
+           winRate: Math.round(hour.winRate * 100) / 100,
+           avgRatingChange: Math.round(hour.avgRatingChange * 100) / 100
+         }));
+
+       setStats({
         totalGames,
         winRate: Math.round(winRate * 100) / 100,
         averageRatingChange: Math.round(averageRatingChange * 100) / 100,
@@ -111,6 +167,8 @@ function StatisticsDashboard({ onBack }: StatisticsDashboardProps) {
         longestLossStreak,
         gamesToday,
         ratingChangeToday,
+        sessionRatingChange,
+        peakHours,
       });
     } catch (error) {
       console.error("Error loading statistics:", error);
@@ -186,20 +244,55 @@ function StatisticsDashboard({ onBack }: StatisticsDashboardProps) {
 
         {/* Today's Performance */}
         <section className="option-section">
-          <h2>Today's Performance</h2>
-          <div className="stats-grid">
-            <div className="stat-card">
-              <h3>Games Played</h3>
-              <span className="stat-value">{stats.gamesToday}</span>
-            </div>
-            <div className="stat-card">
-              <h3>Rating Change</h3>
-              <span className={`stat-value ${stats.ratingChangeToday >= 0 ? 'positive' : 'negative'}`}>
-                {stats.ratingChangeToday > 0 ? '+' : ''}{stats.ratingChangeToday}
-              </span>
-            </div>
-          </div>
-        </section>
+           <h2>Today's Performance</h2>
+           <div className="stats-grid">
+             <div className="stat-card">
+               <h3>Games Played</h3>
+               <span className="stat-value">{stats.gamesToday}</span>
+             </div>
+             <div className="stat-card">
+               <h3>Rating Change</h3>
+               <span className={`stat-value ${stats.ratingChangeToday >= 0 ? 'positive' : 'negative'}`}>
+                 {stats.ratingChangeToday > 0 ? '+' : ''}{stats.ratingChangeToday}
+               </span>
+             </div>
+             <div className="stat-card">
+               <h3>Session Rating Change</h3>
+               <span className={`stat-value ${stats.sessionRatingChange >= 0 ? 'positive' : 'negative'}`}>
+                 {stats.sessionRatingChange > 0 ? '+' : ''}{stats.sessionRatingChange}
+               </span>
+             </div>
+           </div>
+         </section>
+
+        {/* Peak Performance Hours */}
+        <section className="option-section">
+           <h2>Peak Performance Hours</h2>
+           <p>Your best performing hours based on win rate and rating change</p>
+           <div className="peak-hours-list">
+             {stats.peakHours.length > 0 ? (
+               stats.peakHours.map((hourData, index) => (
+                 <div key={hourData.hour} className="peak-hour-item">
+                   <div className="hour-rank">#{index + 1}</div>
+                   <div className="hour-details">
+                     <div className="hour-time">
+                       {hourData.hour.toString().padStart(2, '0')}:00 - {(hourData.hour + 1).toString().padStart(2, '0')}:00
+                     </div>
+                     <div className="hour-stats">
+                       <span className="hour-win-rate">{hourData.winRate}% win rate</span>
+                       <span className={`hour-rating-change ${hourData.avgRatingChange >= 0 ? 'positive' : 'negative'}`}>
+                         {hourData.avgRatingChange > 0 ? '+' : ''}{hourData.avgRatingChange} avg rating
+                       </span>
+                       <span className="hour-games">({hourData.gamesPlayed} games)</span>
+                     </div>
+                   </div>
+                 </div>
+               ))
+             ) : (
+               <p className="no-data">Not enough data to identify peak hours. Play more games to see your peak performance times!</p>
+             )}
+           </div>
+         </section>
 
         {/* Recent Games */}
         <section className="option-section">
