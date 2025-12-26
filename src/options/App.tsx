@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import "./App.css";
+import StatisticsDashboard from "./StatisticsDashboard";
 
 interface ExtensionOptions {
   maxLosses: number;
@@ -10,6 +11,11 @@ interface ExtensionOptions {
   showNotifications: boolean;
   autoResetStats: boolean;
   enableTiltMode: boolean;
+  enableProgressiveTimeouts: boolean;
+  progressiveTimeoutMultiplier: number;
+  enableRatingDropTrigger: boolean;
+  ratingDropThreshold: number;
+  trackRatingChanges: boolean;
 }
 
 const DEFAULT_OPTIONS: ExtensionOptions = {
@@ -21,6 +27,11 @@ const DEFAULT_OPTIONS: ExtensionOptions = {
   showNotifications: true,
   autoResetStats: false,
   enableTiltMode: true,
+  enableProgressiveTimeouts: false,
+  progressiveTimeoutMultiplier: 1.5,
+  enableRatingDropTrigger: false,
+  ratingDropThreshold: 50,
+  trackRatingChanges: true,
 };
 
 function App() {
@@ -29,6 +40,7 @@ function App() {
   const [saveStatus, setSaveStatus] = useState<
     "idle" | "saving" | "saved" | "error"
   >("idle");
+  const [activeTab, setActiveTab] = useState<string>("settings");
 
   useEffect(() => {
     loadOptions();
@@ -51,6 +63,8 @@ function App() {
     setSaveStatus("saving");
     try {
       await chrome.storage.sync.set(options);
+      // Notify content scripts that options have been updated
+      chrome.runtime.sendMessage({ type: "OPTIONS_UPDATED" });
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 2000);
     } catch (error) {
@@ -76,11 +90,29 @@ function App() {
     );
   }
 
+  if (activeTab === "dashboard") {
+    return <StatisticsDashboard onBack={() => setActiveTab("settings")} />;
+  }
+
   return (
     <div className="options-container">
       <header className="options-header">
         <h1>ChessBreak Options</h1>
         <p>Configure your chess break settings</p>
+        <div className="tab-navigation">
+          <button
+            className={`tab-button ${activeTab === "settings" ? "active" : ""}`}
+            onClick={() => setActiveTab("settings")}
+          >
+            Settings
+          </button>
+          <button
+            className={`tab-button ${activeTab === "dashboard" ? "active" : ""}`}
+            onClick={() => setActiveTab("dashboard")}
+          >
+            Statistics
+          </button>
+        </div>
       </header>
 
       <div className="options-content">
@@ -226,25 +258,126 @@ function App() {
           </div>
         </section>
 
-        {/* Notification Settings */}
-        <section className="option-section">
-          <h2>Notification Settings</h2>
-          <div className="option-group">
-            <label className="option-label">
-              <input
-                type="checkbox"
-                checked={options.showNotifications}
-                onChange={(e) =>
-                  handleOptionChange("showNotifications", e.target.checked)
-                }
-              />
-              Show Break Notifications
-            </label>
-            <p className="option-description">
-              Display notifications when tilt mode is activated
-            </p>
-          </div>
-        </section>
+         {/* Progressive Timeout Settings */}
+         <section className="option-section">
+           <h2>Progressive Timeout Settings</h2>
+           <div className="option-group">
+             <label className="option-label">
+               <input
+                 type="checkbox"
+                 checked={options.enableProgressiveTimeouts}
+                 onChange={(e) =>
+                   handleOptionChange("enableProgressiveTimeouts", e.target.checked)
+                 }
+               />
+               Enable Progressive Timeouts
+             </label>
+             <p className="option-description">
+               Increase timeout duration with each consecutive tilt trigger
+             </p>
+           </div>
+
+           <div className="option-group">
+             <label className="option-label">
+               Timeout Multiplier:
+               <input
+                 type="number"
+                 min="1.1"
+                 max="5.0"
+                 step="0.1"
+                 value={options.progressiveTimeoutMultiplier}
+                 onChange={(e) =>
+                   handleOptionChange(
+                     "progressiveTimeoutMultiplier",
+                     parseFloat(e.target.value)
+                   )
+                 }
+                 disabled={!options.enableProgressiveTimeouts}
+               />
+             </label>
+             <p className="option-description">
+               Multiplier applied to base timeout for each tilt (1.1-5.0)
+             </p>
+           </div>
+         </section>
+
+         {/* Rating Drop Trigger Settings */}
+         <section className="option-section">
+           <h2>Rating Drop Trigger Settings</h2>
+           <div className="option-group">
+             <label className="option-label">
+               <input
+                 type="checkbox"
+                 checked={options.enableRatingDropTrigger}
+                 onChange={(e) =>
+                   handleOptionChange("enableRatingDropTrigger", e.target.checked)
+                 }
+               />
+               Enable Rating Drop Trigger
+             </label>
+             <p className="option-description">
+               Trigger tilt prevention based on rating drops instead of just losses
+             </p>
+           </div>
+
+           <div className="option-group">
+             <label className="option-label">
+               Rating Drop Threshold:
+               <input
+                 type="number"
+                 min="10"
+                 max="200"
+                 value={options.ratingDropThreshold}
+                 onChange={(e) =>
+                   handleOptionChange(
+                     "ratingDropThreshold",
+                     parseInt(e.target.value)
+                   )
+                 }
+                 disabled={!options.enableRatingDropTrigger}
+               />
+             </label>
+             <p className="option-description">
+               Minimum rating points lost to trigger tilt prevention (10-200)
+             </p>
+           </div>
+
+           <div className="option-group">
+             <label className="option-label">
+               <input
+                 type="checkbox"
+                 checked={options.trackRatingChanges}
+                 onChange={(e) =>
+                   handleOptionChange("trackRatingChanges", e.target.checked)
+                 }
+               />
+               Track Rating Changes
+             </label>
+             <p className="option-description">
+               Monitor and store rating changes for statistics and triggers
+             </p>
+           </div>
+         </section>
+
+         {/* Notification Settings */}
+         <section className="option-section">
+           <h2>Notification Settings</h2>
+           <div className="option-group">
+             <label className="option-label">
+               <input
+                 type="checkbox"
+                 checked={options.showNotifications}
+                 onChange={(e) =>
+                   handleOptionChange("showNotifications", e.target.checked)
+                 }
+               />
+               Show Break Notifications
+             </label>
+             <p className="option-description">
+               Display notifications when tilt mode is activated
+             </p>
+           </div>
+         </section>
 
         {/* Action Buttons */}
         <section className="option-section">

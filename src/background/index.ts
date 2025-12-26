@@ -1,7 +1,11 @@
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener(async (message) => {
   console.log("Background received message:", message);
 
-  if (message.type === "TILT_STARTED") {
+  // Load options to check notification settings
+  const options = await chrome.storage.sync.get(["showNotifications"]);
+  const showNotifications = options.showNotifications ?? true; // default to true
+
+  if (message.type === "TILT_STARTED" && showNotifications) {
     console.log("TILT_STARTED - creating notification");
     chrome.notifications.create({
       type: "basic",
@@ -15,12 +19,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
     });
   }
-  if (message.type === "TILT_ENDED") {
+  if (message.type === "TILT_ENDED" && showNotifications) {
     console.log("TILT_ENDED - creating notification");
     chrome.notifications.create({
       type: "basic",
       title: "Chess Break",
-      message: `Tilt prevention ended after ${message.data.timeout}ms`,
+      message: `Tilt prevention ended after ${Math.round(message.data.timeout / 60000)} minutes`,
       iconUrl: "public/logo.png",
     }, (notificationId) => {
       console.log("TILT_ENDED notification created with ID:", notificationId);

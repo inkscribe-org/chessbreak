@@ -30,8 +30,12 @@ interface SessionData {
     reason: string;
     timestamp: number;
     players: { top: string; bottom: string; username: string };
+    ratingChange?: number;
   }>;
   gameState: GameState;
+  totalTiltCount: number;
+  currentRating?: number;
+  sessionRatingStart?: number;
 }
 
 interface ExtensionOptions {
@@ -43,6 +47,11 @@ interface ExtensionOptions {
   showNotifications: boolean;
   autoResetStats: boolean;
   enableTiltMode: boolean;
+  enableProgressiveTimeouts: boolean;
+  progressiveTimeoutMultiplier: number;
+  enableRatingDropTrigger: boolean;
+  ratingDropThreshold: number;
+  trackRatingChanges: boolean;
 }
 
 const DEFAULT_OPTIONS: ExtensionOptions = {
@@ -54,6 +63,11 @@ const DEFAULT_OPTIONS: ExtensionOptions = {
   showNotifications: true,
   autoResetStats: false,
   enableTiltMode: true,
+  enableProgressiveTimeouts: false,
+  progressiveTimeoutMultiplier: 1.5,
+  enableRatingDropTrigger: false,
+  ratingDropThreshold: 50,
+  trackRatingChanges: true,
 };
 
 /**
@@ -76,11 +90,12 @@ const loadOptions = async (): Promise<ExtensionOptions> => {
  * or null if the game history is not found
  */
 const loadGameHistory = async (): Promise<Array<{
-  url: string;
+  url: string | null;
   result: string;
   reason: string;
   timestamp: number;
   players: { top: string; bottom: string; username: string };
+  ratingChange?: number;
 }> | null> => {
   try {
     logState("loadGameHistory", "Loading game history from storage");
@@ -105,11 +120,12 @@ const loadGameHistory = async (): Promise<Array<{
  */
 const saveGameHistory = async (
   gameHistory: Array<{
-    url: string;
+    url: string | null;
     result: string;
     reason: string;
     timestamp: number;
     players: { top: string; bottom: string; username: string };
+    ratingChange?: number;
   }>,
 ) => {
   logState("saveGameHistory", `Saving ${gameHistory.length} games to storage`);
@@ -133,6 +149,9 @@ const getLatestSessionData = async (): Promise<SessionData> => {
     currentTimeout,
     currentTimeoutStart,
     gameHistory,
+    totalTiltCount,
+    currentRating,
+    sessionRatingStart,
   } = await chrome.storage.local.get([
     "sessionStats",
     "chessBreakSessionStart",
@@ -141,6 +160,9 @@ const getLatestSessionData = async (): Promise<SessionData> => {
     "currentTimeout",
     "currentTimeoutStart",
     "gameHistory",
+    "totalTiltCount",
+    "currentRating",
+    "sessionRatingStart",
   ]);
 
   const sessionLength = (chessBreakSessionLength || options.sessionLength) * 60 * 1000;
@@ -166,6 +188,9 @@ const getLatestSessionData = async (): Promise<SessionData> => {
       chessBreakStreak,
       chessBreakSessionLength: options.sessionLength,
       gameHistory: [], // overwrite game history because the session is over
+      totalTiltCount: 0,
+      currentRating: undefined,
+      sessionRatingStart: undefined,
     });
     currentTimeout = options.timeoutDuration * 60 * 1000;
     currentTimeoutStart = 0;
@@ -181,6 +206,9 @@ const getLatestSessionData = async (): Promise<SessionData> => {
     currentTimeoutStart,
     gameHistory,
     gameState: GameState.NOT_STARTED,
+    totalTiltCount,
+    currentRating,
+    sessionRatingStart,
   };
 
   logState("getLatestSessionData", `Session data loaded: ${sessionData}`);
@@ -202,43 +230,9 @@ const updateStats = async (
 };
 
 
-/**
- * Parses the game result from the modal.
- * @param result - The result of the game result text may either be "You won!, draw or white/black won"
- * @returns The result of the game, "win", "loss" or "draw"
- */
-const parseGameResult = (result: string): "win" | "loss" | "draw" => {
-  const resultText = result.trim().toLowerCase();
-  logState("parseGameResult", `Parsing result: "${result}" -> "${resultText}"`);
 
-  if (resultText.includes("draw")) {
-    logState("parseGameResult", "Result: DRAW");
-    return "draw";
-  }
-  if (resultText.includes("white") || resultText.includes("black")) {
-    logState("parseGameResult", "Result: LOSS");
-    return "loss";
-  }
-  logState("parseGameResult", "Result: WIN");
-  return "win";
-};
 
-/**
- * Gets the game result text and reason from the modal
- * @param modal - The modal element
- * @returns The game result text
- */
-const getGameResultText = (
-  modal: Element,
-): { result: string; reason: string } => {
-  const result = modal.querySelector(".header-title-component")?.textContent;
-  const reason = modal.querySelector(".header-subtitle-component")?.textContent;
-  logState(
-    "getGameResultText",
-    `Modal result: "${result}", reason: "${reason}"`,
-  );
-  return { result: result || "", reason: reason || "" };
-};
+
 
 /**
  * Main class for the chess break extension
@@ -264,12 +258,16 @@ class ChessBreak {
   currentTimeoutStart: number = 0;
   currentTimeout: number = 5 * 60 * 1000;
   gameHistory: Array<{
-    url: string;
+    url: string | null;
     result: string;
     reason: string;
     timestamp: number;
     players: { top: string; bottom: string; username: string };
+    ratingChange?: number;
   }> = [];
+  totalTiltCount: number = 0;
+  currentRating?: number;
+  sessionRatingStart?: number;
   gameState: GameState = GameState.NOT_STARTED;
   drawButton: Element | null = null;
   resignButton: Element | null = null;
@@ -403,35 +401,56 @@ class ChessBreak {
    * Removes visibility  on the play buttons, sets a timer to resume play
    */
   private stopTilt = async () => {
+    const options = await loadOptions();
+    let timeoutDuration = this.currentTimeout;
+
+    // Calculate progressive timeout if enabled
+    if (options.enableProgressiveTimeouts) {
+      const baseTimeout = options.timeoutDuration * 60 * 1000;
+      timeoutDuration = baseTimeout * Math.pow(options.progressiveTimeoutMultiplier, this.totalTiltCount);
+      logState("stopTilt", `Progressive timeout: base=${baseTimeout}ms, multiplier=${options.progressiveTimeoutMultiplier}, count=${this.totalTiltCount}, final=${timeoutDuration}ms`);
+    }
+
     logState(
       "stopTilt",
-      `Starting tilt prevention - hiding ${this.playButtons.length} play buttons`,
+      `Starting tilt prevention - hiding ${this.playButtons.length} play buttons for ${timeoutDuration}ms`,
     );
     this.playButtons.forEach((button) => {
       button.setAttribute("class", "cb-hidden");
     });
     console.log("Removing Tilt");
-    this.currentTimeoutStart = await this.updateCurrentTimeoutStart(
-      this.currentTimeout,
-    );
+
+    // Increment total tilt count
+    this.totalTiltCount++;
+    await chrome.storage.local.set({ totalTiltCount: this.totalTiltCount });
+
+    this.currentTimeoutStart = await this.updateCurrentTimeoutStart(timeoutDuration);
 
     // Send notification that tilt prevention has started
     chrome.runtime.sendMessage({
       type: "TILT_STARTED",
-      data: { timeout: this.currentTimeout },
+      data: { timeout: timeoutDuration },
     });
 
     setTimeout(async () => {
       logState("stopTilt", "Timeout ended, restoring play buttons");
       chrome.runtime.sendMessage({
         type: "TILT_ENDED",
-        data: { timeout: this.currentTimeout },
+        data: { timeout: timeoutDuration },
       });
       this.playButtons.forEach((button) => {
         console.log(button);
         button.classList.remove("cb-hidden");
       });
-    }, this.currentTimeout);
+
+      // Check if auto reset stats is enabled
+      if (options.autoResetStats) {
+        logState("stopTilt", "Auto-resetting stats after tilt break");
+        this.results = { win: 0, loss: 0, draw: 0 };
+        this.streak = 0;
+        await updateStats(this.results, this.streak);
+      }
+    }, timeoutDuration);
   };
 
   private handleGameWon = async () => {
@@ -450,10 +469,30 @@ class ChessBreak {
       "handleGameLost",
       `Game lost! New stats - losses: ${this.results.loss}, streak: ${this.streak}`,
     );
-    if (this.streak >= this.maxLosses) {
+    const options = await loadOptions();
+
+    let shouldTriggerTilt = false;
+    let triggerReason = "";
+
+    // Check loss streak trigger
+    if (options.enableTiltMode && this.streak >= this.maxLosses) {
+      shouldTriggerTilt = true;
+      triggerReason = `loss streak (${this.streak}/${this.maxLosses})`;
+    }
+
+    // Check rating drop trigger
+    if (options.enableRatingDropTrigger && this.currentRating !== undefined && this.sessionRatingStart !== undefined) {
+      const ratingDrop = this.sessionRatingStart - this.currentRating;
+      if (ratingDrop >= options.ratingDropThreshold) {
+        shouldTriggerTilt = true;
+        triggerReason = `rating drop (${ratingDrop} points)`;
+      }
+    }
+
+    if (shouldTriggerTilt) {
       logState(
         "handleGameLost",
-        `Triggering tilt prevention - streak: ${this.streak}, losses: ${this.results.loss}, maxLosses: ${this.maxLosses}`,
+        `Triggering tilt prevention due to ${triggerReason}`,
       );
       this.stopTilt();
     }
@@ -466,6 +505,66 @@ class ChessBreak {
       "handleGameDraw",
       `Game drawn! New stats - draws: ${this.results.draw}, streak: ${this.streak}`,
     );
+  };
+
+  /**
+   * Parses the game result from the modal.
+   * @param result - The result of the game result text may either be "You won!, draw or white/black won"
+   * @returns The result of the game, "win", "loss" or "draw"
+   */
+  private parseGameResult = (result: string): "win" | "loss" | "draw" => {
+    const resultText = result.trim().toLowerCase();
+    logState("parseGameResult", `Parsing result: "${result}" -> "${resultText}"`);
+
+    if (resultText.includes("draw")) {
+      logState("parseGameResult", "Result: DRAW");
+      return "draw";
+    }
+    if (resultText.includes("white") || resultText.includes("black")) {
+      logState("parseGameResult", "Result: LOSS");
+      return "loss";
+    }
+    logState("parseGameResult", "Result: WIN");
+    return "win";
+  };
+
+  /**
+   * Gets the game result text and reason from the modal
+   * @param modal - The modal element
+   * @returns The game result text
+   */
+  private getGameResultText = (
+    modal: Element,
+  ): { result: string; reason: string } => {
+    const result = modal.querySelector(".header-title-component")?.textContent;
+    const reason = modal.querySelector(".header-subtitle-component")?.textContent;
+    logState(
+      "getGameResultText",
+      `Modal result: "${result}", reason: "${reason}"`,
+    );
+    return { result: result || "", reason: reason || "" };
+  };
+
+  /**
+   * Extracts rating change from the game end modal
+   * @param modal - The modal element
+   * @returns The rating change or null if not found
+   */
+  private extractRatingChange = (modal: Element): number | null => {
+    // Look for rating change patterns in the modal
+    // Chess.com typically shows rating changes like "+15" or "-8"
+    const ratingElements = modal.querySelectorAll("*");
+    for (const element of ratingElements) {
+      const text = element.textContent || "";
+      const ratingMatch = text.match(/([+-]\d+)/);
+      if (ratingMatch) {
+        const change = parseInt(ratingMatch[1]);
+        logState("extractRatingChange", `Found rating change: ${change}`);
+        return change;
+      }
+    }
+    logState("extractRatingChange", "No rating change found in modal");
+    return null;
   };
 
   /*
@@ -485,25 +584,46 @@ class ChessBreak {
       logState("handleGameEnd", "User not playing, ignoring game end");
       return;
     }
-    const { result, reason } = getGameResultText(modalElement);
-    const gameResult = parseGameResult(result);
+    const { result, reason } = this.getGameResultText(modalElement);
+    const gameResult = this.parseGameResult(result);
 
-    this.gameHistory.push({
-      url: window.location.href,
-      result: gameResult,
-      reason: reason,
-      timestamp: Date.now(),
-      players: {
-        top: this.top?.textContent ?? "",
-        bottom: this.bottom?.textContent ?? "",
-        username: this.username ?? "",
-      },
-    });
-    try {
-      await chrome.storage.local.set({ gameHistory: this.gameHistory });
-    } catch (error) {
-      console.error("Error storing game info:", error);
+    // Try to get rating change from the modal
+    const ratingChange = this.extractRatingChange(modalElement);
+
+    // Update current rating if we have rating change info
+    if (ratingChange !== null && this.currentRating !== undefined) {
+      this.currentRating += ratingChange;
+      await chrome.storage.local.set({ currentRating: this.currentRating });
+      logState("handleGameEnd", `Updated rating: ${this.currentRating} (change: ${ratingChange})`);
     }
+
+    const options = await loadOptions();
+    if (options.storeGameHistory) {
+      this.gameHistory.push({
+        url: window.location.href,
+        result: gameResult,
+        reason: reason,
+        timestamp: Date.now(),
+        players: {
+          top: this.top?.textContent ?? "",
+          bottom: this.bottom?.textContent ?? "",
+          username: this.username ?? "",
+        },
+        ratingChange: ratingChange || undefined,
+      });
+
+      // Clean up old entries based on retention
+      const retentionMs = options.gameHistoryRetention * 24 * 60 * 60 * 1000;
+      const now = Date.now();
+      this.gameHistory = this.gameHistory.filter(entry => now - entry.timestamp <= retentionMs);
+
+      try {
+        await chrome.storage.local.set({ gameHistory: this.gameHistory });
+      } catch (error) {
+        console.error("Error storing game info:", error);
+      }
+    }
+
     if (gameResult === "win") {
       this.handleGameWon();
     } else if (gameResult === "loss") {
@@ -605,13 +725,18 @@ class ChessBreak {
   private initSessionStats = async (): Promise<void> => {
     logState("initSessionStats", "Initializing session stats");
     const options = await loadOptions();
-    const {
-      sessionStats,
-      chessBreakStreak,
-      chessBreakSessionStart,
-      chessBreakSessionLength,
-      currentTimeout,
-    } = await getLatestSessionData();
+  const {
+    sessionStats,
+    chessBreakStreak,
+    chessBreakSessionStart,
+    chessBreakSessionLength,
+    currentTimeout,
+    currentTimeoutStart,
+    gameHistory,
+    totalTiltCount,
+    currentRating,
+    sessionRatingStart,
+  } = await getLatestSessionData();
 
     this.results = sessionStats;
     this.streak = chessBreakStreak;
@@ -619,12 +744,32 @@ class ChessBreak {
     this.sessionLength = (chessBreakSessionLength || options.sessionLength) * 60 * 1000;
     this.maxLosses = options.maxLosses;
     this.currentTimeout = currentTimeout != 0 ? currentTimeout : options.timeoutDuration * 60 * 1000;
+    this.currentTimeoutStart = currentTimeoutStart || 0;
+    this.gameHistory = gameHistory || [];
+    this.totalTiltCount = totalTiltCount || 0;
+    this.currentRating = currentRating;
+    this.sessionRatingStart = sessionRatingStart;
 
     logState(
       "initSessionStats",
       `Session initialized - stats: ${JSON.stringify(this.results)}, streak: ${
         this.streak
       }, timeout: ${this.currentTimeout}ms, maxLosses: ${this.maxLosses}`,
+    );
+  };
+
+  /**
+   * Reloads options from storage and updates relevant properties
+   */
+  private reloadOptions = async (): Promise<void> => {
+    logState("reloadOptions", "Reloading options from storage");
+    const options = await loadOptions();
+    this.maxLosses = options.maxLosses;
+    this.sessionLength = options.sessionLength * 60 * 1000;
+    this.currentTimeout = options.timeoutDuration * 60 * 1000;
+    logState(
+      "reloadOptions",
+      `Options updated - maxLosses: ${this.maxLosses}, sessionLength: ${this.sessionLength}ms, currentTimeout: ${this.currentTimeout}ms`,
     );
   };
 
@@ -709,7 +854,7 @@ class ChessBreak {
     this.isGameStarted();
     logState("start", "ChessBreak extension fully initialized");
 
-    // Set up message listener for CLEAR_STATS to keep in-memory state in sync
+    // Set up message listener for CLEAR_STATS and OPTIONS_UPDATED to keep in-memory state in sync
     chrome.runtime.onMessage.addListener((message, _sender, _sendResponse) => {
       if (message?.type === "CLEAR_STATS") {
         logState(
@@ -733,6 +878,9 @@ class ChessBreak {
           });
           logState("message", "State and storage cleared");
         })();
+      } else if (message?.type === "OPTIONS_UPDATED") {
+        logState("message", "Received OPTIONS_UPDATED - reloading options");
+        this.reloadOptions();
       }
     });
   };

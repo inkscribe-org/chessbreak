@@ -6,19 +6,19 @@ export default defineManifest({
   name: pkg.name,
   version: pkg.version,
   icons: {
-    48: "public/logo.png",
+    48: "logo128.png",
   },
   action: {
     default_icon: {
-      48: "public/logo.png",
+      48: "logo128.png",
     },
     default_popup: "src/popup/index.html",
   },
-  permissions: ["contentSettings", "storage", "notifications"],
+  permissions: ["storage", "notifications", "tabs"],
   content_scripts: [
     {
       js: ["src/content/main.tsx"],
-      matches: ["https://*/*"],
+      matches: ["https://www.chess.com/*"],
     },
   ],
   background: {
